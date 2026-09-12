@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Freeze notice · TRINETRA{% endblock %}
+{% block body_class %}notice-page{% endblock %}
+{% block page_styles %}
+  <link rel="stylesheet" href="/static/workspace-shell.css">
+  <link rel="stylesheet" href="/static/notice.css">
+  <link rel="stylesheet" href="/static/notice-emblem.css">
+{% endblock %}
+{% block page_scripts %}<script defer src="/static/notice.js"></script>{% endblock %}
+
+{% block authenticated %}
+{% set dispatched = notice.status == 'dispatched' %}
+{% set countersigned = notice.countersigned_by_pis is not none %}
+{% set awaiting_countersignature = notice.status == 'awaiting_countersignature' %}
+{% set can_dispatch = countersigned and not dispatched and (user.role == 'admin' or user.pis == notice.created_by_pis) %}
+{% set portal_dispatch = dispatch_by_channel.get('portal') %}
+{% set email_dispatch = dispatch_by_channel.get('email') %}
+{% set nodal_dispatch = dispatch_by_channel.get('nodal-copy') %}
+{% set entity = demo.entity %}
+<div class="notice-app" data-notice-id="{{ notice.id }}" data-notice-status="{{ notice.status }}" data-countersigned="{{ 'true' if countersigned else 'false' }}" data-can-dispatch="{{ 'true' if can_dispatch else 'false' }}" data-deposit-address="{{ finding.deposit_address }}">
+  {% set active_page = 'notice' %}
+  {% include "_workspace_nav.html" %}
+  <div class="notice-shell">
+    <header class="notice-toolbar">
+      <div class="notice-crumb"><a href="/findings/{{ finding.id }}">Custody finding</a><i></i><strong>Freeze notice — {{ 'dispatched' if dispatched else 'draft' }}</strong><span class="mono">{{ case.ack_no }}</span></div>
+      <div class="notice-tools">
+        <span class="notice-state{{ ' sent' if dispatched else ' signed' if countersigned else '' }}"><i data-state-dot></i><b data-state-label>{% if dispatched %}Dispatched, awaiting acknowledgement{% elif countersigned %}Countersigned, ready to dispatch{% elif awaiting_countersignature %}Countersignature requested{% else %}Draft, not dispatched{% endif %}</b></span>
+        <span class="notice-version">{% if settings.legal_copy_approved %}Template BNSS-106 v3.2, approved for this environment{% else %}Template BNSS-106 v3.2 · specimen · legal review pending{% endif %}</span>
+        <button type="button" class="notice-outline" data-download>Download {{ 'signed' if countersigned else 'draft' }} PDF</button>
+        <button type="button" class="notice-outline" data-print>Print</button>
+      </div>
+    </header>
+
+    <div class="notice-content">
+      <div class="notice-document-scroll">
+        <div class="notice-page-mat">
+          <article class="notice-paper" aria-label="Freeze notice draft">
+            {% if not settings.legal_copy_approved or settings.specimen_watermark %}<div class="notice-specimen-label" role="note">SPECIMEN · NOT FOR LIVE DISPATCH</div>{% endif %}
+            {% include "notice_document.html" %}
+          </article>
+        </div>
+      </div>
+
+      <aside class="notice-dispatch">
+        <h2>Dispatch</h2>
+        <section class="notice-channels">
+          <h3>Channels</h3>
+          <label><input type="checkbox" name="channel" value="portal" form="notice-dispatch-form"{{ ' checked' if portal_dispatch or not dispatched else '' }}{{ ' disabled' if dispatched else '' }} data-channel><span><b>Law-enforcement portal</b><small class="mono">coinsphere-le / request 8841</small><em{% if portal_dispatch %} style="color:{{ '#dc2626' if portal_dispatch.status == 'failed' else '#16a34a' }}"{% endif %} data-channel-state>{% if portal_dispatch %}{{ 'Failed — retry required' if portal_dispatch.status == 'failed' else 'Sent, awaiting acknowledgement' }}{% elif dispatched %}Not selected{% else %}Queued{% endif %}</em></span></label>
+          <label><input type="checkbox" name="channel" value="email" form="notice-dispatch-form"{{ ' checked' if email_dispatch or not dispatched else '' }}{{ ' disabled' if dispatched else '' }} data-channel><span><b>Compliance desk email</b><small class="mono">le-requests@coinsphere</small><em{% if email_dispatch %} style="color:{{ '#dc2626' if email_dispatch.status == 'failed' else '#16a34a' }}"{% endif %} data-channel-state>{% if email_dispatch %}{{ 'Failed — retry required' if email_dispatch.status == 'failed' else 'Sent, awaiting acknowledgement' }}{% elif dispatched %}Not selected{% else %}Queued{% endif %}</em></span></label>
+          <label><input type="checkbox" name="channel" value="nodal-copy" form="notice-dispatch-form"{{ ' checked' if nodal_dispatch else '' }}{{ ' disabled' if dispatched else '' }} data-channel><span><b>State nodal officer, copy</b><small class="mono">nodal-mh@cybercell</small><em{% if nodal_dispatch %} style="color:{{ '#dc2626' if nodal_dispatch.status == 'failed' else '#16a34a' }}"{% endif %} data-channel-state>{% if nodal_dispatch %}{{ 'Failed — retry required' if nodal_dispatch.status == 'failed' else 'Sent, awaiting acknowledgement' }}{% else %}Not selected{% endif %}</em></span></label>
+        </section>
+        <section class="notice-periods">
+          <fieldset><legend>Restraint response deadline</legend>
+            <label><input type="radio" name="deadline_hours" value="24" form="notice-dispatch-form"{{ ' checked' if notice.deadline_hours == 24 else '' }}{{ ' disabled' if dispatched else '' }}><span class="mono">24 hours</span></label>
+            <label><input type="radio" name="deadline_hours" value="72" form="notice-dispatch-form"{{ ' checked' if notice.deadline_hours == 72 else '' }}{{ ' disabled' if dispatched else '' }}><span class="mono">72 hours</span></label>
+            <label><input type="radio" name="deadline_hours" value="168" form="notice-dispatch-form"{{ ' checked' if notice.deadline_hours == 168 else '' }}{{ ' disabled' if dispatched else '' }}><span class="mono">7 days</span></label>
+          </fieldset>
+          <p data-period-note>{% if notice.deadline_hours == 72 %}The document body now reads seventy-two hours, used where the custodian sits outside Indian jurisdiction.{% elif notice.deadline_hours == 168 %}The document body now reads seven days. A seven-day period applies only to record production, not to the restraint itself.{% else %}The document body now reads twenty-four hours, the standing period for a first restraint.{% endif %}</p>
+        </section>
+        <section class="notice-attachments"><h3>Attached to this notice</h3>
+          <div><span><i></i><a href="#">Trace report (6 pages)</a></span><b class="mono">PDF, 412 KB</b></div>
+          <div><span><i></i><a href="#">Graph exhibit, hops 0 to 4</a></span><b class="mono">PNG, 1.1 MB</b></div>
+          <div><span><i></i><a href="#">Complaint extract</a></span><b class="mono">PDF, 96 KB</b></div>
+        </section>
+        <section class="notice-countersign">
+          <h3>Countersignature</h3>
+          <p>A notice above 10,000 USDT is dispatched only after the supervising officer countersigns in their own session. You cannot countersign your own draft.</p>
+          <div class="notice-sign-state{{ ' signed' if countersigned else '' }}"><i></i><span data-sign-text>{% if countersigned %}Countersigned by {{ countersigner.name }} at {{ notice.countersigned_ts_ms | ist }}, badge MH-PUN-0912{% elif awaiting_countersignature %}Awaiting ACP S. Deshmukh. Their session must record the signature.{% else %}Not yet requested{% endif %}</span></div>
+          {% if not countersigned and not dispatched and not awaiting_countersignature and (user.role == 'admin' or user.pis == notice.created_by_pis) %}<button type="submit" form="notice-countersign-request-form" class="notice-request-sign" data-request-sign>Request countersignature</button>{% elif awaiting_countersignature and user.role == 'supervisor' and user.pis != notice.created_by_pis %}<button type="submit" form="notice-countersign-form" class="notice-request-sign" data-countersign>Countersign notice</button>{% endif %}
+          <small data-sign-help>{% if awaiting_countersignature %}{% if user.role == 'supervisor' %}The drafting officer's request is recorded. Countersigning here records your own officer identity in the audit trail.{% else %}The request is recorded. Dispatch stays locked in this session until the supervising officer signs in their own session.{% endif %}{% elif not countersigned and user.role == 'supervisor' %}The drafting officer must request countersignature before it can be recorded in this session.{% endif %}</small>
+        </section>
+        <div class="notice-dispatch-spacer"></div>
+        <section class="notice-sendbar{{ ' sent' if dispatched else ' ready' if can_dispatch else '' }}">
+          <p data-send-copy>{% if dispatched %}Dispatch is recorded. Selected portal and compliance channels are awaiting acknowledgement.{% elif can_dispatch %}Ready to dispatch on the selected channels. You will be asked to confirm.{% elif countersigned %}Only the drafting officer may dispatch this notice.{% else %}Dispatch unlocks once the supervising officer countersigns.{% endif %}</p>
+          <button type="button" data-send{{ ' disabled' if not can_dispatch else '' }}>{{ 'Dispatched' if dispatched else 'Dispatch notice' }}</button>
+          <small aria-live="polite" data-live-status>{% if dispatched %}Dispatch recorded on {{ dispatch_by_channel.values() | select | list | length }} channel{{ '' if (dispatch_by_channel.values() | select | list | length) == 1 else 's' }}{% endif %}</small>
+        </section>
+      </aside>
+    </div>
+  </div>
+
+  <div class="notice-modal" hidden data-confirm-modal>
+    <div role="dialog" aria-modal="true" aria-labelledby="notice-confirm-title" aria-describedby="notice-confirm-description">
+      <h2 id="notice-confirm-title">Dispatch this notice?</h2>
+      <p id="notice-confirm-description">Dispatch is recorded in the audit log and cannot be recalled from this screen. Check the evidence below against the document.</p>
+      <dl><dt>Recipient</dt><dd>{{ entity.name }}</dd><dt>Deposit address</dt><dd class="mono" title="{{ finding.deposit_address }}">{{ finding.deposit_address[:6] }}...{{ finding.deposit_address[-4:] }}</dd><dt>Amount restrained</dt><dd class="mono">{{ finding.amount_credited_base | amount }}</dd><dt>Response deadline</dt><dd class="mono" data-confirm-period>{{ '7 days' if notice.deadline_hours == 168 else notice.deadline_hours ~ ' hours' }}</dd><dt>Attachments</dt><dd class="mono">3 files</dd><dt>Channels</dt><dd class="mono" data-confirm-channels>2 selected</dd><dt>Countersigned by</dt><dd>{{ countersigner.name or 'Supervising officer' }}</dd></dl>
+      <div><button type="submit" form="notice-dispatch-form" data-confirm-send>Dispatch notice</button><button type="button" class="notice-outline" data-cancel-send>Cancel</button></div>
+    </div>
+  </div>
+  <form id="notice-countersign-request-form" method="post" action="/notices/{{ notice.id }}/countersign-request" hidden></form>
+  <form id="notice-countersign-form" method="post" action="/notices/{{ notice.id }}/countersign" hidden></form>
+  <form id="notice-dispatch-form" method="post" action="/notices/{{ notice.id }}/dispatch" hidden></form>
+</div>
+{% endblock %}

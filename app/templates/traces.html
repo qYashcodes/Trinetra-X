@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page">
+  <h1>Active traces</h1>
+  {% for trace in traces %}
+    <p><a href="/traces/{{ trace.id }}">Snapshot {{ trace.id }}</a> · {{ trace.status }} · <span class="mono">{{ trace.sha256[:16] }}</span></p>
+  {% else %}
+    <p>No traces yet.</p>
+  {% endfor %}
+</section>
+{% endblock %}

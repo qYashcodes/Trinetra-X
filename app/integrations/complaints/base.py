@@ -1,0 +1,11 @@
+from __future__ import annotations
+
+from typing import Protocol
+
+
+class ComplaintSource(Protocol):
+    def health(self) -> dict: ...
+
+    def fetch(self, ack_no: str) -> dict | None: ...
+
+    def referrals_today(self) -> list[dict]: ...

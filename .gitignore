@@ -1,0 +1,17 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+trinetra.db
+*.sqlite
+*.sqlite3
+.cache/
+var/
+dist/
+build/
+node_modules/

@@ -1,0 +1,255 @@
+{
+  "schema": "trinetra.demo_case/1",
+  "demo_clock_utc": "2026-08-30T04:11:00Z",
+  "trace_closed_ts_ms": 1788063420000,
+  "office": {
+    "name": "Pune City Cyber Cell",
+    "address": "Police Commissioner Office, Pune, Maharashtra",
+    "email": "cybercell.pune@example.invalid"
+  },
+  "officers": {
+    "io": {
+      "name": "Insp. R. Kulkarni",
+      "rank": "Inspector",
+      "pis": "74821",
+      "desk": "Cyber Cell, Pune City"
+    },
+    "supervisor": {
+      "name": "ACP S. Deshmukh",
+      "rank": "Assistant Commissioner of Police",
+      "pis": "61207",
+      "desk": "Cyber Cell, Pune City"
+    }
+  },
+  "case": {
+    "ack_no": "NCRP/2026/MH/0084213",
+    "category": "investment fraud",
+    "jurisdiction": "Pune City Cyber Cell",
+    "filed_ts_ms": 1788061320000,
+    "victim_payment_ts_ms": 1788018247000,
+    "amount_reported_base": 21940000000,
+    "asset": {
+      "symbol": "USDT",
+      "contract": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+      "decimals": 6
+    },
+    "chain": {
+      "family": "TRON",
+      "network": "mainnet",
+      "chain_id": null
+    },
+    "reported_address": "TNq7CqVEANFoJjvekpNLtTYuTnTtA6x7Ti",
+    "payment_txid": "3a0c8a92e15b4c9f9db83de447f1a31c62f65142cb5447bb88428d37e8f4d921",
+    "complainant_contact_redacted": "+91-98XXXXXX42"
+  },
+  "notice": {
+    "notice_no": "CCC/PUN/FN/2026/0311",
+    "deadline_hours": 24,
+    "threshold_countersign_base": 10000000000,
+    "legal_basis": "Issued for urgent preservation and restraint of crypto-assets linked to the acknowledgement number stated below. This prototype wording requires legal approval before live dispatch."
+  },
+  "entity": {
+    "key": "coinsphere",
+    "name": "Coinsphere Global Pte Ltd",
+    "type": "cex",
+    "jurisdiction": "Singapore",
+    "fiu_ind_reg": "VA-0117",
+    "fiu_status": "registered_offshore",
+    "india_compliance_desk": true,
+    "le_contact": "le-requests@coinsphere.example.invalid",
+    "source_ref": "fixture://coinsphere"
+  },
+  "dominant_path": [
+    {
+      "hop": 0,
+      "address": "TNq7CqVEANFoJjvekpNLtTYuTnTtA6x7Ti",
+      "class": "pass_through",
+      "typology": "pass-through",
+      "band": "low",
+      "confidence": 0.28,
+      "value_base": 21940000000,
+      "share_bp": 10000,
+      "ts_ms": 1788018247000,
+      "txids": ["3a0c8a92e15b4c9f9db83de447f1a31c62f65142cb5447bb88428d37e8f4d921"]
+    },
+    {
+      "hop": 1,
+      "address": "TA6WecqPr7y9QUG9pYdVExDYkXiVowjYrM",
+      "class": "pass_through",
+      "typology": "pass-through",
+      "band": "low",
+      "confidence": 0.33,
+      "value_base": 21190000000,
+      "share_bp": 9658,
+      "ts_ms": 1788020347000,
+      "txids": ["98dcae128db5c637b0fc7f60c265f896afe316e5fd04b83c29ff0f86bea0a111"]
+    },
+    {
+      "hop": 2,
+      "address": "TWsVPM9FwCBK8ctLgUbUT8rwMYYd2d7A3h",
+      "class": "peel_chain",
+      "typology": "peel chain",
+      "band": "medium",
+      "confidence": 0.57,
+      "value_base": 19920000000,
+      "share_bp": 9079,
+      "ts_ms": 1788022447000,
+      "txids": ["a4f59a8da1ad0107c12e2a03dc4dba6c883d30111d55fb37a6439c8bf16f8242"]
+    },
+    {
+      "hop": 3,
+      "address": "TQuoZGB7WJEKWMXtjFAK8rjMSm5kDUuMZW",
+      "class": "consolidation",
+      "typology": "consolidation",
+      "band": "medium",
+      "confidence": 0.64,
+      "value_base": 18840000000,
+      "share_bp": 8587,
+      "ts_ms": 1788024547000,
+      "txids": ["40a7238e5be998740989a7936331646972d377dad3283224400e9952ef5aa861"]
+    },
+    {
+      "hop": 4,
+      "address": "TGh3c9PkL8Qn7MuYbxV1aZP2R6EeSsQ7hC",
+      "class": "exchange_deposit_address",
+      "typology": "consolidation",
+      "band": "high",
+      "confidence": 0.91,
+      "value_base": 17880000000,
+      "share_bp": 8150,
+      "ts_ms": 1788027067000,
+      "txids": ["f6167e7e449e5f50a8402025dc1e18a12b201896794c92908ad579a65db9e108"]
+    }
+  ],
+  "hot_wallet": {
+    "address": "TCoinSphereHotWallet9HvS7Xb8WKJSSfVpR",
+    "txid": "0a274a7ab6999874a75392eb96530c4de2a0d6f723d784f2b7d0f8d5130b4824",
+    "ts_ms": 1788027307000
+  },
+  "parked": [
+    {
+      "branch_id": "A",
+      "from_hop": 2,
+      "address": "TK88Branch9tHvD4FyeUKzEDrpsuSA42mx",
+      "value_base": 2310000000,
+      "share_bp": 1053,
+      "reason": "off_dominant_flow",
+      "candidate": "Cluster K-88, medium confidence"
+    },
+    {
+      "branch_id": "B",
+      "from_hop": 3,
+      "address": "TSelfCustodyRemainder6h4L3SYkLTw",
+      "value_base": 1750000000,
+      "share_bp": 798,
+      "reason": "off_dominant_flow",
+      "candidate": "Self-custody remainder, low confidence"
+    }
+  ],
+  "dust": [
+    {
+      "from_hop": 1,
+      "count": 14,
+      "total_base": 0
+    }
+  ],
+  "terminal": {
+    "kind": "vasp_deposit",
+    "custodian_key": "coinsphere",
+    "deposit_address": "TGh3c9PkL8Qn7MuYbxV1aZP2R6EeSsQ7hC",
+    "hot_wallet": "TCoinSphereHotWallet9HvS7Xb8WKJSSfVpR",
+    "amount_credited_base": 17880000000,
+    "retained_share_bp": 8150,
+    "time_to_custody_s": 8820,
+    "note": "Funds credited to an exchange deposit account at Coinsphere Global Pte Ltd."
+  },
+  "classification_fingerprint": [
+    {"signal": "fan_in", "label": "Fan-in from unrelated senders", "value": "187 distinct senders", "pass": true, "lr": 4.2},
+    {"signal": "forward_ratio", "label": "Forward ratio", "value": "1.00 outbound/inbound", "pass": true, "lr": 3.5},
+    {"signal": "resting_balance", "label": "Resting balance", "value": "0 USDT after sweeps", "pass": true, "lr": 2.9},
+    {"signal": "destination_consistency", "label": "Destination consistency", "value": "187 of 187 to one wallet", "pass": true, "lr": 4.8},
+    {"signal": "sweep_timing", "label": "Median sweep timing", "value": "4 minutes", "pass": true, "lr": 3.7},
+    {"signal": "hub_feed_count", "label": "Hub feed count", "value": "214 deposit-pattern feeders", "pass": true, "lr": 5.1}
+  ],
+  "finding_review_checks": [
+    {
+      "key": "complaint_particulars_verified",
+      "label": "Complaint particulars verified against the filed record",
+      "default_checked": true
+    },
+    {
+      "key": "deposit_attribution_confirmed",
+      "label": "Deposit address confirmed against the attribution set",
+      "default_checked": true
+    },
+    {
+      "key": "india_compliance_desk_confirmed",
+      "label": "Deposit address held by a VASP with an India-facing compliance desk",
+      "default_checked": false
+    },
+    {
+      "key": "delegated_authority_confirmed",
+      "label": "Notice period and asset value within delegated authority",
+      "default_checked": false
+    }
+  ],
+  "linked_cases": [
+    {
+      "ack_no": "NCRP/2026/MH/0081902",
+      "basis": "Shared deposit address TGh3c9...Q7hC",
+      "shared_address": "TGh3c9PkL8Qn7MuYbxV1aZP2R6EeSsQ7hC"
+    }
+  ],
+  "referrals_today": [
+    {
+      "ack_no": "NCRP/2026/MH/0084213",
+      "summary": "Investment fraud payment, TRON USDT, 21,940.00",
+      "amount": "21,940.00 USDT",
+      "filed": "09:12 IST",
+      "status": "Awaiting trace"
+    },
+    {
+      "ack_no": "NCRP/2026/MH/0084108",
+      "summary": "TRON USDT complaint referred to this desk",
+      "amount": "8,150.00 USDT",
+      "filed": "08:40 IST",
+      "status": "Awaiting trace"
+    },
+    {
+      "ack_no": "NCRP/2026/KA/0079922",
+      "summary": "TRON USDT complaint referred to this desk",
+      "amount": "46,000.00 USDT",
+      "filed": "07:55 IST",
+      "status": "Awaiting trace"
+    },
+    {
+      "ack_no": "NCRP/2026/DL/0079481",
+      "summary": "TRON USDT complaint referred to this desk",
+      "amount": "3,275.00 USDT",
+      "filed": "07:19 IST",
+      "status": "Awaiting trace"
+    }
+  ],
+  "risk_examples": {
+    "TGh3c9PkL8Qn7MuYbxV1aZP2R6EeSsQ7hC": "alert",
+    "TWsVPM9FwCBK8ctLgUbUT8rwMYYd2d7A3h": "medium",
+    "RC_clean": "low"
+  },
+  "terminal_variants": [
+    "vasp_deposit",
+    "unregistered_vasp",
+    "vasp_hot_wallet",
+    "stationary_funds",
+    "mixer",
+    "bridge",
+    "trail_dissipated",
+    "depth_exhausted",
+    "unsupported_chain",
+    "error"
+  ],
+  "fixture_counts": {
+    "transfers": 680,
+    "accounts": 482,
+    "seed": 38
+  }
+}

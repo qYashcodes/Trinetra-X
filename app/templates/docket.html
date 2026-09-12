@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Case docket · TRINETRA{% endblock %}
+{% block body_class %}docket-page{% endblock %}
+
+{% block breadcrumb %}
+<div class="breadcrumb docket-breadcrumb">
+  <div class="docket-location"><span>Case docket</span><b>•</b><strong>{{ user.desk }}</strong></div>
+  <div class="docket-feed">
+    <span class="source-pill"><i></i>NCRP feed connected</span>
+    <span class="clock mono">2026-08-30 09:41 IST</span>
+  </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<section class="docket-screen">
+  <section class="docket-metrics" aria-label="Docket summary">
+    {% for metric in docket.kpis %}
+    <article class="docket-metric {{ metric.tone }}">
+      <span>{{ metric.label }}</span>
+      <div><strong class="mono">{% if metric.amount_base is defined %}{{ metric.amount_base|millions }}{% else %}{{ metric.value }}{% endif %}</strong><small>{{ metric.unit }}</small></div>
+      <p>{{ metric.detail }}</p>
+    </article>
+    {% endfor %}
+  </section>
+
+  <section class="docket-controls" aria-label="Case filters">
+    <div class="docket-filter-row">
+      {% for filter in docket.filters %}
+      <button class="docket-filter {{ 'active' if filter.active else '' }}" type="button">
+        <i class="{{ filter.tone }}" aria-hidden="true"></i>
+        <span>{{ filter.label }}</span>
+        <b class="mono">{{ filter.count }}</b>
+      </button>
+      {% endfor %}
+    </div>
+    <div class="docket-search-row">
+      <label class="sr-only" for="docket-search">Filter cases</label>
+      <input class="mono" id="docket-search" type="search" placeholder="Filter by reference, custodian...">
+      <a class="button" href="/cases/new">New case</a>
+    </div>
+  </section>
+
+  <section class="docket-table-wrap" aria-label="Cases in this docket">
+    <table class="docket-table">
+      <colgroup>
+        <col class="ack-col"><col class="amount-col"><col class="trace-col">
+        <col class="recovery-col"><col class="stage-col"><col class="age-col">
+      </colgroup>
+      <thead>
+        <tr>
+          <th>Acknowledgement</th>
+          <th>Amount reported</th>
+          <th>Traced to</th>
+          <th>Recovered / at rest</th>
+          <th>Stage</th>
+          <th>Age</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in docket.rows %}
+        <tr data-docket-row>
+          <td>
+            <a class="docket-ack mono" href="{{ '/cases/' ~ case.id ~ '/canvas?snapshot=' ~ snapshot.id if loop.first else '#' }}">
+              <i class="{{ row.status_tone }}" aria-hidden="true"></i><span>{{ row.ack_no }}</span>
+            </a>
+          </td>
+          <td class="docket-amount mono">{{ row.amount_base|amount }}</td>
+          <td class="docket-traced {{ row.traced_tone }}">{{ row.traced_to }}</td>
+          <td>
+            <div class="docket-recovery mono">
+              {% if row.recovered_base is defined %}{{ row.recovered_base|amount_number }} {{ row.recovered_label }}{% else %}{{ row.recovered_label }}{% endif %}
+            </div>
+            <div class="docket-progress"><i class="{{ row.progress_tone }}" style="width: {{ row.progress|default(0) }}%"></i></div>
+          </td>
+          <td>
+            <div class="docket-stage {{ 'with-linked' if row.linked else '' }}">
+              <span>{{ row.stage }}</span>
+              {% if row.linked %}<b>{{ row.linked }} linked</b>{% endif %}
+            </div>
+          </td>
+          <td class="docket-age mono {{ row.age_tone|default('') }}">{{ row.age }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+</section>
+{% endblock %}
+
+{% block actionbar %}
+<div class="docket-actionbar">
+  <p><i></i>Two cases need attention: one notice past its acknowledgement period and one trace stalled. Both appear under the Needs attention filter.</p>
+  <span class="mono">8 of 37 shown</span>
+</div>
+{% endblock %}

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-label="TRINETRA emblem">
+  <path d="M24 5.5l13.5 7v9.2c0 8.4-5.6 15.8-13.5 19.9-7.9-4.1-13.5-11.5-13.5-19.9v-9.2L24 5.5z" fill="none" stroke="#111a2b" stroke-width="2"/>
+  <path d="M13.8 22.9c3.2-5.2 6.6-7.8 10.2-7.8s7 2.6 10.2 7.8c-3.2 5.2-6.6 7.8-10.2 7.8s-7-2.6-10.2-7.8z" fill="none" stroke="#111a2b" stroke-width="1.6"/>
+  <circle cx="24" cy="22.9" r="5.6" fill="none" stroke="#111a2b" stroke-width="1.6"/>
+  <circle cx="24" cy="22.9" r="2" fill="#111a2b"/>
+</svg>

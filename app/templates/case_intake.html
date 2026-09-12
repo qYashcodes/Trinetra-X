@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}New case · TRINETRA{% endblock %}
+
+{% block breadcrumb %}
+<div class="breadcrumb" aria-label="Breadcrumb">
+  <span>Home</span><b>/</b><span>Case intake</span><b>/</b><strong>New complaint</strong>
+</div>
+{% endblock %}
+
+{% block content %}
+<section class="intake-screen">
+  <div class="intake-scroll">
+    <section class="intake-opening">
+      <div class="intake-opening-main">
+        <h1>Open a case from a filed complaint</h1>
+        <p>Enter the acknowledgement number issued by the national cybercrime<br class="desktop-break"> portal, or the receipt code held by the complainant. The record supplies the<br class="desktop-break"> payment time, amount and recipient address.</p>
+        <form method="post" action="/cases/ingest" class="intake-form">
+          <label for="ack_no">Acknowledgement number or report code <em>*</em></label>
+          <div class="intake-form-row">
+            <input id="ack_no" name="ack_no" value="{{ ack_value }}" pattern="^(NCRP/\d{4}/[A-Z]{2}/\d{7})$|^[A-Z0-9]{8,14}$" aria-describedby="ack-help sample-references">
+            <button type="submit">Ingest case</button>
+          </div>
+          <div id="sample-references" class="sample-references">
+            <span>Sample data</span>
+            {% for sample in samples %}
+            <button class="sample-reference {{ sample.status }}" type="button" data-complaint-sample="{{ sample.ack_no }}">
+              <i aria-hidden="true"></i><b class="mono">{{ sample.ack_no }}</b><small>{{ sample.label }}</small>
+            </button>
+            {% endfor %}
+          </div>
+          <div id="ack-help" class="field-help"><i></i>Paste the number from the complaint, or select a referral.</div>
+        </form>
+      </div>
+      <aside class="trace-parameters" aria-label="Trace parameters applied">
+        <h2>Trace parameters applied</h2>
+        <dl>
+          <dt>Hop depth cap</dt><dd>5</dd>
+          <dt>Time window</dt><dd>8 h</dd>
+          <dt>Traversal</dt><dd class="mono">value-weighted</dd>
+        </dl>
+        <p>Defaults set by the standing order<br>for value-weighted traversal.</p>
+      </aside>
+    </section>
+
+    <section class="particulars-panel">
+      <header>
+        <h2>Particulars read from the complaint</h2>
+        <span class="mono status-count {{ intake_state }}"><i></i>{% if intake_state == "pending" %}Awaiting input{% else %}{{ completed_particulars }} of 8 particulars{% endif %}</span>
+      </header>
+      <dl class="particulars-grid">
+        {% for particular in particulars %}
+        <div class="particular-box {{ particular.status }}" data-particular-state="{{ particular.status }}">
+          <i class="particular-status-dot" aria-hidden="true"></i>
+          <dt>{{ particular.label }}</dt>
+          <dd>{{ particular.value }}</dd>
+        </div>
+        {% endfor %}
+      </dl>
+    </section>
+
+    <section class="referrals-panel">
+      <header>
+        <h2>Referred to this desk today</h2>
+        <span>4 complaints</span>
+      </header>
+      <table>
+        <thead>
+          <tr>
+            <th>Acknowledgement number</th>
+            <th>Amount reported</th>
+            <th>Filed</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="mono">NCRP/2026/MH/0084213</td>
+            <td class="mono">21,940.00 USDT</td>
+            <td class="mono">09:12 IST</td>
+            <td class="referral-status"><i class="warning"></i>Awaiting trace</td>
+          </tr>
+          <tr>
+            <td class="mono">NCRP/2026/MH/0084108</td>
+            <td class="mono">8,150.00 USDT</td>
+            <td class="mono">08:40 IST</td>
+            <td class="referral-status"><i></i>Awaiting trace</td>
+          </tr>
+          <tr>
+            <td class="mono">NCRP/2026/KA/0079922</td>
+            <td class="mono">46,000.00 USDT</td>
+            <td class="mono">07:55 IST</td>
+            <td class="referral-status"><i></i>Awaiting trace</td>
+          </tr>
+          <tr>
+            <td class="mono">NCRP/2026/DL/0079481</td>
+            <td class="mono">3,275.00 USDT</td>
+            <td class="mono">07:19 IST</td>
+            <td class="referral-status"><i></i>Awaiting trace</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  </div>
+</section>
+{% endblock %}
+
+{% block actionbar %}
+<div class="intake-actionbar">
+  <p><i></i>The trace runs only after the complaint record is ingested and its particulars confirmed.</p>
+  <div class="intake-actions">
+    <span class="mono">{% if record and completed_particulars == 8 %}Case loaded{% elif record %}{{ 8 - completed_particulars }} details require manual entry{% elif intake_state == "pending" %}Awaiting input{% else %}No case loaded{% endif %}</span>
+    <a class="clear-button" href="/cases/new">Clear</a>
+    {% if record and completed_particulars == 8 %}
+    <form method="post" action="/cases/start">
+      <input type="hidden" name="ack_no" value="{{ record.ack_no }}">
+      <input type="hidden" name="reviewed" value="yes">
+      <button type="submit">Start trace</button>
+    </form>
+    {% else %}
+    <button type="button" disabled>Start trace</button>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

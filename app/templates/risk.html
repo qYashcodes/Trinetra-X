@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}Risk check · TRINETRA{% endblock %}
+{% block body_class %}risk-page{% endblock %}
+{% block page_styles %}
+<link rel="stylesheet" href="/static/workspace-shell.css">
+<link rel="stylesheet" href="/static/risk.css">
+{% endblock %}
+{% block page_scripts %}<script defer src="/static/risk.js"></script>{% endblock %}
+
+{% block authenticated %}
+{% set active_page = "risk" %}
+<div class="risk-app">
+  {% include "_workspace_nav.html" %}
+
+  <div class="risk-workspace">
+    <header class="risk-toolbar">
+      <div class="risk-location">
+        <span>Risk check</span><i aria-hidden="true"></i><strong>Address lookup before a transfer</strong>
+      </div>
+      <div class="risk-dataset">
+        <span class="risk-revision"><i aria-hidden="true"></i>Attribution set rev. 2026-08-24</span>
+        <span class="risk-indexed">37 dockets indexed</span>
+      </div>
+    </header>
+
+    <main class="risk-main">
+      <div class="risk-primary">
+        <section class="risk-query-card">
+          <h1>Check an address before money moves</h1>
+          <p>Paste a recipient address to see whether it appears in this desk's dockets, in the shared attribution set, or on an advisory list. The check reads records only. Nothing is reported to the address holder.</p>
+
+          <form id="risk-check-form" method="post" action="/risk-check" novalidate>
+            <div class="risk-input-row">
+              <label class="sr-only" for="risk-address">Recipient address</label>
+              <input id="risk-address" class="{{ 'is-error' if risk_error else '' }}" name="address" type="text" value="{{ address }}" placeholder="Paste a TRON, Ethereum or Bitcoin address" autocomplete="off" spellcheck="false" aria-describedby="risk-hint">
+              <button type="submit">{{ "Check again" if result else "Run check" }}</button>
+            </div>
+            <span id="risk-hint" class="risk-hint {{ 'is-error' if risk_error else '' }}" aria-live="polite">{% if risk_error %}{{ risk_error }}{% elif result %}Checked against 37 dockets, the attribution set and the advisory lists.{% else %}The check reads records held by this desk. Nothing is written to the case file.{% endif %}</span>
+          </form>
+
+          <div class="risk-samples" aria-label="Example addresses">
+            <span>Try</span>
+            {% for sample in risk_samples %}
+            <button type="button" data-risk-address="{{ sample.address }}"><i class="{{ sample.tone }}" aria-hidden="true"></i><span>{{ sample.label }}</span></button>
+            {% endfor %}
+          </div>
+        </section>
+
+        {% if result %}
+        <section class="risk-result-card {{ result.band }}" aria-label="{{ result.headline }}">
+          <div class="risk-result-head">
+            <div class="risk-verdict">
+              <span class="risk-band"><strong>{{ result.band_label }}</strong><span>{{ result.verdict_badge }}</span></span>
+              <h2>{{ result.verdict_line }}</h2>
+              <span class="risk-address-value">{{ result.address }}</span>
+            </div>
+            <div class="risk-score"><strong>{{ result.score }}</strong><span>risk score of 100</span></div>
+          </div>
+
+          <p class="risk-verdict-note">{{ result.verdict_note }}</p>
+
+          <div class="risk-facts">
+            {% for fact in result.facts %}
+            <div><span>{{ fact.label }}</span><strong class="{{ fact.tone }}">{{ fact.value }}</strong></div>
+            {% endfor %}
+          </div>
+
+          <section class="risk-signals">
+            <h3>Signals found</h3>
+            {% for signal in result.signal_details %}
+            <div class="risk-signal">
+              <i class="{{ signal.tone }}" aria-hidden="true"></i>
+              <span><strong>{{ signal.label }}</strong><small>{{ signal.detail }}</small></span>
+              <em>{{ signal.meta }}</em>
+            </div>
+            {% endfor %}
+          </section>
+        </section>
+        {% else %}
+        <section class="risk-empty-card">
+          <h2>No address checked yet</h2>
+          <p>The result appears here with the score, the signals behind it, and any<br>docket that already names the address.</p>
+        </section>
+        {% endif %}
+      </div>
+
+      <aside class="risk-side">
+        <section class="risk-side-card risk-linked">
+          <header><h2>Dockets naming this address</h2><span>{{ result.linked|length if result else 0 }} of 37</span></header>
+          {% if result and result.linked %}
+          <div class="risk-linked-list">
+            {% for linked in result.linked %}
+            <a href="{{ linked.href }}">
+              <span><i class="{{ linked.tone }}" aria-hidden="true"></i><strong>{{ linked.reference }}</strong></span>
+              <span><b>{{ linked.amount }}</b><small>{{ linked.stage }}</small></span>
+            </a>
+            {% endfor %}
+          </div>
+          {% else %}
+          <p>No docket at this desk names the address. Absence of a record is not clearance.</p>
+          {% endif %}
+        </section>
+
+        <section class="risk-side-card risk-recent">
+          <header><h2>Recent checks at this desk</h2></header>
+          <div>
+            {% for recent in risk_recent %}
+            <button type="button" data-risk-address="{{ recent.address }}"><span><i class="{{ recent.tone }}" aria-hidden="true"></i><strong>{{ recent.label }}</strong></span><time>{{ recent.time }}</time></button>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="risk-use-card">
+          <h2>How this result may be used</h2>
+          <p>A risk score is an investigative aid. It is not evidence of an offence and must not be quoted in a notice or a report without a completed trace behind it.</p>
+        </section>
+      </aside>
+    </main>
+  </div>
+</div>
+{% endblock %}

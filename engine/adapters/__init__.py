@@ -1,0 +1,1 @@
+"""Live-provider adapter namespace."""

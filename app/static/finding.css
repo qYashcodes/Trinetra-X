@@ -1,0 +1,81 @@
+body.finding-page { margin:0; overflow:hidden; background:#f5f7fa; color:#111a2b; }
+.finding-page .finding-app { width:100vw; height:100vh; display:grid; grid-template-rows:62px minmax(0,1fr) 42px; overflow:hidden; font-family:"Noto Sans",sans-serif; line-height:normal; }
+.finding-page .finding-topbar { display:flex; align-items:stretch; border-bottom:1px solid #e3e8ef; background:#f5f7fa; }
+.finding-page .finding-top-brand { width:240px; flex:none; display:flex; align-items:center; padding:0 18px; border-right:1px solid #e3e8ef; font-size:16px; font-weight:600; letter-spacing:.01em; }
+.finding-page .finding-top-main { min-width:0; flex:1; display:flex; align-items:center; overflow:hidden; }
+.finding-page .finding-top-fact { height:100%; min-width:0; display:flex; flex-direction:column; justify-content:center; gap:3px; padding:0 20px; border-right:1px solid #e3e8ef; }
+.finding-page .finding-top-fact span { color:#5c6880; font-size:13px; white-space:nowrap; }
+.finding-page .finding-top-fact b { color:#111a2b; font-size:15px; font-weight:500; white-space:nowrap; }
+.finding-page .finding-custody-state { margin-left:14px; display:inline-flex; align-items:center; gap:8px; padding:5px 11px; border:1px solid #e3e8ef; border-radius:7px; background:#fff; font-size:14px; white-space:nowrap; }
+.finding-page .finding-custody-state i { width:7px; height:7px; border-radius:50%; background:#16a34a; }
+.finding-page .finding-top-spacer { flex:1; }
+.finding-page .finding-top-button { height:44px; min-height:44px; margin-right:10px; padding:0 13px; border:1px solid #12325e; border-radius:7px; background:transparent; color:#5c6880; font-size:15px; font-weight:400; white-space:nowrap; }
+.finding-page .finding-top-button:hover { background:rgba(18,50,94,.06); color:#111a2b; text-decoration:none; }
+.finding-page .finding-top-button.lock { margin-right:18px; padding:0 16px; background:#f1f4f8; color:#111a2b; font-weight:600; }
+.finding-page .finding-top-button.lock.ready { background:#12325e; color:#fff; }
+.finding-page .finding-body { min-height:0; display:flex; }
+.finding-page .finding-body > .workspace-nav { flex:none; }
+.finding-page .finding-workspace { min-width:0; min-height:0; flex:1; display:grid; grid-template-columns:minmax(0,1fr) 380px; overflow:hidden; }
+.finding-page .finding-main { min-width:0; min-height:0; overflow-y:auto; overflow-x:hidden; border-right:1px solid #e3e8ef; background:#f5f7fa; }
+.finding-page .finding-hero { display:flex; flex-direction:column; gap:13px; padding:26px 30px 19px; border-bottom:1px solid #e3e8ef; }
+.finding-page .finding-confidence { align-self:flex-start; display:inline-flex; align-items:center; gap:7px; padding:4px 11px; border:1px solid #bfe6cf; border-radius:20px; background:#eefaf2; color:#15803d; font-size:13px; }
+.finding-page .finding-confidence i { width:7px; height:7px; border-radius:50%; background:#16a34a; }
+.finding-page .finding-hero h1 { margin:0; max-width:26ch; color:#111a2b; font-size:29px; font-weight:600; line-height:1.25; }
+.finding-page .finding-hero > p { margin:0; max-width:68ch; color:#5c6880; font-size:16px; line-height:1.6; }
+.finding-page .finding-metrics { height:106px; display:flex; max-width:760px; overflow:hidden; border:1px solid #e3e8ef; border-radius:10px; background:#fff; }
+.finding-page .finding-metrics > div { min-width:0; flex:1 1 180px; display:flex; flex-direction:column; gap:5px; padding:14px 16px; border-right:1px solid #eef1f6; }
+.finding-page .finding-metrics > div:last-child { border-right:0; }
+.finding-page .finding-metrics span,.finding-page .finding-metrics small { color:#5c6880; font-size:13px; }
+.finding-page .finding-metrics b { color:#111a2b; font-size:18px; font-weight:500; }
+.finding-page .finding-metrics b.green { color:#16a34a; }
+.finding-page .finding-path-section { width:1210px; display:flex; flex-direction:column; gap:12px; padding:18px 30px 19px; border-bottom:1px solid #e3e8ef; }
+.finding-page .finding-path-section h2,.finding-page .finding-basis-section h2 { margin:0; color:#111a2b; font-size:15px; font-weight:600; }
+.finding-page .finding-path { display:flex; align-items:flex-start; }
+.finding-page .finding-path-unit { display:flex; align-items:flex-start; }
+.finding-page .finding-path-node { display:flex; flex-direction:column; align-items:center; gap:6px; }
+.finding-page .finding-hop { padding:3px 10px; border:1px solid #dde3ec; border-radius:6px; background:#f1f4f8; color:#3c4a61; font-size:12.5px; font-weight:600; }
+.finding-page .finding-path-node > i { width:42px; height:42px; display:flex; align-items:center; justify-content:center; border:2px solid #5c6880; border-radius:50%; background:#eef1f6; color:#5c6880; }
+.finding-page .finding-path-node > i em { width:14px; height:10px; display:block; border:2px solid currentColor; border-radius:2px; }
+.finding-page .finding-path-node.blue > i { border-color:#2563eb; background:#e6efff; color:#2563eb; }
+.finding-page .finding-path-node.amber > i { border-color:#c98a12; background:#fdf3e0; color:#c98a12; }
+.finding-page .finding-path-node.green > i { border-color:#16a34a; background:#eefaf2; color:#16a34a; }
+.finding-page .finding-path-node strong { color:#111a2b; font-size:12.5px; font-weight:600; line-height:1.3; white-space:nowrap; }
+.finding-page .finding-path-node small { margin-top:-5px; color:#5c6880; font-size:11.5px; white-space:nowrap; }
+.finding-page .finding-arrow { width:52px; flex:none; display:flex; align-items:center; padding:0 4px; margin-top:41px; }
+.finding-page .finding-arrow i { width:100%; height:0; position:relative; border-top:2px solid #16a34a; }
+.finding-page .finding-arrow i::after { content:""; position:absolute; top:-6px; right:-1px; border-left:8px solid #16a34a; border-top:5px solid transparent; border-bottom:5px solid transparent; }
+.finding-page .finding-basis-section { min-height:0; display:flex; flex-direction:column; gap:12px; padding:18px 30px 24px; }
+.finding-page .finding-basis-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.finding-page .finding-basis-grid article { min-width:0; display:flex; flex-direction:column; gap:7px; padding:15px 17px; border:1px solid #e3e8ef; border-radius:10px; background:#fff; }
+.finding-page .finding-basis-grid h3 { margin:0; display:flex; align-items:center; gap:8px; font-size:14px; font-weight:600; }
+.finding-page .finding-basis-grid h3 i { width:7px; height:7px; flex:none; border-radius:50%; }
+.finding-page .finding-basis-grid h3 i.green { background:#16a34a; }.finding-page .finding-basis-grid h3 i.amber { background:#c98a12; }
+.finding-page .finding-basis-grid p { margin:0; color:#5c6880; font-size:14px; line-height:1.55; }
+.finding-page .finding-basis-grid small { color:#5c6880; font-size:13px; }
+.finding-page .finding-review-rail { min-width:0; min-height:0; display:flex; flex-direction:column; overflow-y:auto; border-left:1px solid #e3e8ef; background:#fff; }
+.finding-page .finding-review-rail > h2 { height:44px; flex:none; display:flex; align-items:center; margin:0; padding:0 18px; border-bottom:1px solid #eef1f6; font-size:15px; font-weight:600; }
+.finding-page .finding-custodian { flex:none; display:flex; flex-direction:column; gap:12px; padding:17px 18px; border-bottom:1px solid #e3e8ef; }
+.finding-page .finding-custodian h3 { margin:0; font-size:17px; font-weight:600; }
+.finding-page .finding-custodian dl { margin:0; display:grid; grid-template-columns:auto minmax(0,1fr); gap:9px 12px; }
+.finding-page .finding-custodian dt { color:#5c6880; font-size:13.5px; }.finding-page .finding-custodian dd { margin:0; font-size:13.5px; text-align:right; word-break:break-all; }
+.finding-page .finding-deposit { flex:none; display:flex; flex-direction:column; gap:9px; padding:13px 18px; border-bottom:1px solid #e3e8ef; }
+.finding-page .finding-deposit h3 { margin:0; font-size:14px; font-weight:600; }
+.finding-page .finding-deposit button { width:100%; min-height:auto; display:block; padding:10px 12px; border:1px solid #12325e; border-radius:8px; background:#f5f7fa; color:#111a2b; font-size:14px; font-weight:400; line-height:1.5; text-align:left; word-break:break-all; cursor:copy; }
+.finding-page .finding-deposit button:hover { background:#f1f4f8; color:#111a2b; }.finding-page .finding-deposit button.copied { color:#15803d; }
+.finding-page .finding-deposit p { margin:0; color:#5c6880; font-size:13px; line-height:1.4; }
+.finding-page .finding-review-form { flex:1; min-height:0; display:flex; flex-direction:column; margin:0; }
+.finding-page .finding-review-form fieldset { flex:none; display:flex; flex-direction:column; gap:6px; margin:0; padding:16px 18px; border:0; border-bottom:1px solid #e3e8ef; }
+.finding-page .finding-review-form legend { padding:0; font-size:14px; font-weight:600; }
+.finding-page .finding-review-form label { min-height:44px; display:flex; align-items:center; gap:11px; padding:6px 0; cursor:pointer; }
+.finding-page .finding-review-form input { width:20px; height:20px; min-height:20px; flex:none; margin:0; accent-color:#12325e; cursor:pointer; }
+.finding-page .finding-review-form label span { color:#5c6880; font-size:14px; line-height:1.5; }.finding-page .finding-review-form label:has(input:checked) span { color:#111a2b; }
+.finding-page .finding-review-action { margin-top:auto; flex:none; display:flex; flex-direction:column; gap:11px; padding:16px 18px; border-top:1px solid #e3e8ef; border-left:4px solid #c98a12; background:#fff; }
+.finding-page .finding-review-action.ready { border-left-color:#12325e; }
+.finding-page .finding-review-action p { margin:0; color:#5c6880; font-size:14px; line-height:1.55; }
+.finding-page .finding-review-action button { height:52px; border:1px solid #12325e; border-radius:7px; background:#f1f4f8; color:#5c6880; font-size:16px; font-weight:600; }
+.finding-page .finding-review-action button:not(:disabled) { background:#12325e; color:#fff; }.finding-page .finding-review-action button:not(:disabled):hover { background:#0b1e39; }
+.finding-page .finding-footer { height:42px; display:flex; align-items:center; gap:16px; padding:0 22px; border-top:1px solid #e3e8ef; background:#fff; color:#5c6880; font-size:13.5px; white-space:nowrap; }
+.finding-page .finding-footer > strong { color:#111a2b; font-size:13.5px; }.finding-page .finding-footer > i { width:1px; height:18px; background:#e3e8ef; }.finding-page .finding-footer .spacer { flex:1; }.finding-page .finding-footer .health { display:flex; align-items:center; gap:8px; }.finding-page .finding-footer .health b { width:8px; height:8px; border-radius:50%; background:#16a34a; }
+.finding-page .finding-main,.finding-page .finding-review-rail { scrollbar-width:none; }
+.finding-page .finding-main::-webkit-scrollbar,.finding-page .finding-review-rail::-webkit-scrollbar { width:0; height:0; }
+@media (max-width:1279px) { .finding-page .finding-workspace { grid-template-columns:minmax(0,1fr); overflow:auto; }.finding-page .finding-review-rail { border-top:1px solid #e3e8ef; }.finding-page .finding-main { overflow:visible; }.finding-page .finding-path-section { width:auto; }.finding-page .finding-footer { overflow:hidden; }.finding-page .finding-footer .spacer ~ * { display:none; } }

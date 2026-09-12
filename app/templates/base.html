@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}TRINETRA{% endblock %}</title>
+  <link rel="stylesheet" href="/static/fonts/noto.css">
+  <link rel="stylesheet" href="/static/app.css">
+  {% block page_styles %}{% endblock %}
+  <script defer src="/static/vendor/alpine.min.js"></script>
+  <script defer src="/static/app.js"></script>
+  {% block page_scripts %}{% endblock %}
+</head>
+<body class="{% block body_class %}{% endblock %}">
+{% if user %}
+{% block authenticated %}
+{% set path = request.url.path %}
+<div class="app-frame">
+  {% block masthead %}
+  <header class="app-masthead">
+    <div class="tri-strip" aria-hidden="true"><span></span><span></span><span></span></div>
+    <div class="masthead-brand">
+      <div class="outline-monogram">त्रि</div>
+      <div>
+        <div class="masthead-wordmark">TRINETRA</div>
+        <div class="masthead-subtitle">Cyber Financial Crime Investigation Desk</div>
+      </div>
+    </div>
+    <div class="masthead-status">
+      <span class="source-pill"><i></i>NCRP feed connected</span>
+      <span class="clock mono">2026-08-30 09:41 IST</span>
+    </div>
+  </header>
+  {% endblock %}
+
+  <aside class="nav-rail">
+    <div class="nav-head">
+      <div class="outline-monogram compact">त्रि</div>
+      <div>
+        <div class="wordmark">TRINETRA</div>
+        <div class="subtitle">Virtual asset tracing desk</div>
+      </div>
+    </div>
+    <nav aria-label="Primary">
+      <div class="nav-group">Cases</div>
+      <a class="nav-item {{ 'active' if path == '/cases/new' else '' }}" href="/cases/new"><span>New case</span><b>4</b></a>
+      <a class="nav-item {{ 'active' if path == '/docket' else '' }}" href="/docket"><span>Case docket</span><b>37</b></a>
+      <div class="nav-group">Investigations</div>
+      <a class="nav-item {{ 'active' if path.startswith('/traces') else '' }}" href="/traces"><span>Active traces</span><b>2</b></a>
+      <a class="nav-item {{ 'active' if path.startswith('/cases/') and 'canvas' in path else '' }}" href="/cases/1/canvas"><span>Investigator canvas</span></a>
+      <div class="nav-group">Outputs</div>
+      <a class="nav-item {{ 'active' if path.startswith('/findings') else '' }}" href="/findings/1"><span>Custody findings</span></a>
+      <a class="nav-item {{ 'active' if path.startswith('/notices') else '' }}" href="/notices"><span>Freeze notices</span><b>11</b></a>
+      <div class="nav-group">Tools</div>
+      <a class="nav-item {{ 'active' if path.startswith('/risk-check') else '' }}" href="/risk-check"><span>Risk check</span></a>
+    </nav>
+    <div class="nav-footer">
+      <strong>{{ user.name }}</strong>
+      <span>{{ user.desk }}</span>
+      <small>Prototype for Smart India<br>Hackathon 2026. Not an official<br>Government of India website.</small>
+    </div>
+  </aside>
+
+  <main class="main-shell">
+    {% block breadcrumb %}<div class="breadcrumb"><span>Home</span><b>/</b><strong>Workspace</strong></div>{% endblock %}
+    <section class="content-shell">
+      {% block content %}{% endblock %}
+    </section>
+    {% block actionbar %}{% endblock %}
+  </main>
+
+  <footer class="footer-bar">
+    <span>Prototype built for Smart India Hackathon 2026 by Team Trinetra. Not an official Government of India website.</span>
+    <span class="standards mono">GIGW 3.0 · WCAG 2.1 AA · DBIM v3.0</span>
+  </footer>
+</div>
+{% endblock %}
+{% else %}
+  {% block public %}{% endblock %}
+{% endif %}
+</body>
+</html>

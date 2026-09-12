@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Login · TRINETRA{% endblock %}
+{% block public %}
+<section class="login">
+  <main class="login-stack" aria-labelledby="login-title">
+    <img src="/static/trinetra-login-mark.svg" class="login-mark" alt="">
+    <h1 id="login-title">TRINETRA</h1>
+    <p class="login-product">Cryptocurrency Fund-Flow Attribution System</p>
+    <p class="login-meta">Restricted access · Government of India</p>
+
+    <div class="login-actions">
+      <a class="login-button login-button-primary" href="{{ settings.cctns_login_url }}" target="{{ settings.sso_link_target }}">
+        <span class="login-icon">CC</span>
+        <span>Sign in with CCTNS</span>
+      </a>
+      <a class="login-button login-button-primary" href="{{ settings.sahyog_portal_url }}" target="{{ settings.sso_link_target }}">
+        <span class="login-icon">SG</span>
+        <span>Sign in with SAHYOG Portal</span>
+      </a>
+      <form method="post" action="/auth/prototype">
+        <input type="hidden" name="role" value="io">
+        <button class="login-button login-button-prototype" type="submit">PROTOTYPE BASED LOGIN</button>
+      </form>
+    </div>
+
+    <p class="login-help">Access is provisioned by your departmental nodal officer.</p>
+    <p class="login-help">Contact your cyber cell administrator to request access.</p>
+  </main>
+  <footer class="login-warning">This is a restricted Government of India system. Access is monitored. All queries are logged against your officer identity and the case they are attached to. Unauthorised access is an offence under the Information Technology Act, 2000.</footer>
+</section>
+{% endblock %}

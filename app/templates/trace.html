@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% block title %}Active trace · TRINETRA{% endblock %}
+{% block body_class %}trace-page{% endblock %}
+{% block page_styles %}
+  <link rel="stylesheet" href="/static/workspace-shell.css">
+  <link rel="stylesheet" href="/static/trace.css">
+{% endblock %}
+{% block page_scripts %}<script defer src="/static/trace.js"></script>{% endblock %}
+
+{% block authenticated %}
+{% set trace_hops = demo.dominant_path %}
+{% set terminal = demo.terminal %}
+<div
+  class="trace-app"
+  data-trace-replay
+  data-step="0"
+  data-state="running"
+  data-case-id="{{ case.id }}"
+  data-snapshot-id="{{ snapshot.id }}"
+  data-finding-id="{{ finding.id if finding else '' }}"
+  data-hop-shares="{% for hop in trace_hops %}{{ hop.share_bp | pctbp }}{{ '|' if not loop.last else '' }}{% endfor %}"
+  data-terminal-amount="{{ terminal.amount_credited_base | amount }}"
+  data-custodian-name="{{ demo.entity.name }}"
+>
+  <header class="trace-topbar">
+    <div class="trace-top-brand">Trinetra</div>
+    <div class="trace-top-main">
+      <div class="trace-top-fact trace-reference">
+        <span>Complaint reference</span>
+        <b class="mono">{{ case.ack_no }}</b>
+      </div>
+      <div class="trace-top-fact trace-amount">
+        <span>Amount traced</span>
+        <b class="mono">{{ case.amount_reported_base | amount }}</b>
+      </div>
+      <div class="trace-run-state" data-run-state><i></i><span>Tracing — hop 1 of 5</span></div>
+      <div class="trace-top-spacer"></div>
+      <button class="trace-top-button" type="button" data-trace-pause>Pause</button>
+      <button class="trace-top-button" type="button" data-trace-restart>Restart</button>
+    </div>
+  </header>
+
+  <div class="trace-body">
+    {% set active_page = "traces" %}
+    {% include "_workspace_nav.html" %}
+
+    <div class="trace-workspace">
+      <aside class="trace-request" aria-label="Trace request">
+        <div class="trace-request-main">
+          <h1>Trace request</h1>
+          <dl class="trace-seed">
+            <dt>Seed address</dt>
+            <dd class="mono" title="{{ case.reported_address }}">{{ case.reported_address[:24] }}<br>{{ case.reported_address[24:] }}</dd>
+            <dd>{{ case.chain_family }}, {{ case.asset_symbol }}-TRC20</dd>
+          </dl>
+          <dl class="trace-parameters">
+            <div><dt>Hop depth cap</dt><dd class="mono">5</dd></div>
+            <div><dt>Time window</dt><dd class="mono">8 h</dd></div>
+            <div><dt>Traversal</dt><dd class="mono">value-weighted</dd></div>
+            <div><dt>Value floor</dt><dd class="mono">250 USDT</dd></div>
+          </dl>
+
+          <h2>Data sources queried</h2>
+          <ul class="trace-sources">
+            <li><i class="green"></i><span>TRON full node</span></li>
+            <li><i class="green"></i><span>Attribution set (rev. 2026-08-24)</span></li>
+            <li><i class="green"></i><span>Prior case addresses, 37 dockets</span></li>
+            <li><i class="amber" data-advisory-dot></i><span>Sanctions and advisory lists</span></li>
+          </ul>
+        </div>
+        <p class="trace-request-note">Traversal follows the largest outbound share at each hop. Branches below the value floor are recorded but not expanded.</p>
+      </aside>
+
+      <main class="trace-live" aria-live="polite">
+        <section class="trace-live-hero">
+          <div class="trace-heading-row">
+            <div>
+              <h1 data-trace-heading>Following the funds</h1>
+              <p data-trace-subheading>Each hop is written to the case record as it resolves. The graph builds in parallel.</p>
+            </div>
+            <div class="trace-progress-copy"><b class="mono" data-progress-value>0%</b><span class="mono"><em data-elapsed>00:00</em> elapsed</span></div>
+          </div>
+          <div class="trace-progress-track" aria-label="Trace progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <i class="trace-progress-fill"></i><i class="trace-progress-scan"></i>
+          </div>
+          <div class="trace-worker">
+            <svg class="trace-worker-mark" viewBox="0 0 72 72" aria-hidden="true">
+              <circle cx="36" cy="36" r="34" fill="#f7f9fc" stroke="#12325e"/>
+              <path d="M36 10 58 22v28L36 62 14 50V22z" fill="none" stroke="#12325e" stroke-width="1.2"/>
+              <path d="M36 18 52 27v18l-16 9-16-9V27z" fill="#eef4fc" stroke="#12325e" stroke-width="1.6"/>
+              <path d="M23 36c4.4-6 8.6-8.3 13-8.3S44.7 30 49 36c-4.3 6-8.7 8.3-13 8.3S27.4 42 23 36z" fill="#fff" stroke="#12325e" stroke-width="1.5"/>
+              <circle cx="36" cy="36" r="6.2" fill="#12325e"/><circle cx="36" cy="36" r="2.3" fill="#fff"/>
+            </svg>
+            <div><strong data-work-heading>Tracing — hop 1 of 5</strong><span>Nodes appear on the canvas as each hop resolves.</span></div>
+          </div>
+        </section>
+
+        <section class="trace-table-wrap" aria-label="Resolved trace hops">
+          <table class="trace-hop-table">
+            <colgroup><col class="hop"><col class="address"><col class="value"><col class="share"><col class="time"><col class="classification"></colgroup>
+            <thead><tr><th>Hop</th><th>Address reached</th><th>Value carried</th><th>Share</th><th>Time at hop</th><th>Classification</th></tr></thead>
+            <tbody>
+              {% set hop_labels = ['Victim payment', 'Pass-through', 'Peel chain', 'Consolidation', 'Deposit address'] %}
+              {% for hop in trace_hops %}
+              {% set tone = 'green' if loop.last else 'amber' if hop.hop in [2, 3] else 'slate' %}
+              <tr class="trace-hop-row" data-trace-row="{{ loop.index }}" hidden>
+                <td class="mono">{{ hop.hop }}</td><td><i class="{{ tone }}"></i><span class="mono" title="{{ hop.address }}">{{ hop.address }}</span></td><td class="mono">{{ hop.value_base | amount_number }}<br>{{ case.asset_symbol }}</td><td class="mono">{{ hop.share_bp | pctcompact }}</td><td class="mono">{{ (hop.ts_ms | ist)[11:19] }}</td><td class="{{ 'green-text' if loop.last else 'amber-text' if hop.hop in [2, 3] else '' }}">{{ hop_labels[loop.index0] }}</td>
+              </tr>
+              {% endfor %}
+              <tr class="trace-work-row"><td colspan="6"><i></i><span class="mono" data-work-line>expanding outbound set at hop 1 — 3 counterparties</span></td></tr>
+            </tbody>
+          </table>
+          <p class="trace-complete-sr sr-only">Live trace complete</p>
+        </section>
+      </main>
+
+      <aside class="trace-findings" aria-label="Findings so far">
+        <h1>Findings so far</h1>
+        <dl class="trace-stats">
+          <div><dt>Addresses visited</dt><dd class="mono" data-stat-addresses>3</dd></div>
+          <div><dt>Transfers read</dt><dd class="mono" data-stat-transfers>11</dd></div>
+          <div><dt>Value retained</dt><dd class="mono" data-stat-retained>—</dd></div>
+          <div><dt>Branches parked</dt><dd class="mono" data-stat-branches>0</dd></div>
+        </dl>
+        <div class="trace-candidate-head"><h2>Custody candidates</h2><span class="mono" data-candidate-mode>provisional</span></div>
+        <div class="trace-candidates">
+          <article class="trace-candidate high" data-candidate="coinsphere" hidden>
+            <div class="trace-candidate-name"><i></i><strong>Coinsphere Global (VASP)</strong><b>high</b></div>
+            <div class="trace-candidate-detail"><span class="mono">{{ terminal.amount_credited_base | amount_number }}<br>{{ case.asset_symbol }}</span><span>deposit pattern + 214<br>known addresses</span></div>
+          </article>
+          <article class="trace-candidate medium" data-candidate="cluster" hidden>
+            <div class="trace-candidate-name"><i></i><strong>Unattributed cluster K-88</strong><b>medium</b></div>
+            <div class="trace-candidate-detail"><span class="mono">2,310.00<br>USDT</span><span>behavioural match<br>only</span></div>
+          </article>
+          <article class="trace-candidate low" data-candidate="self" hidden>
+            <div class="trace-candidate-name"><i></i><strong>Self-custody remainder</strong><b>low</b></div>
+            <div class="trace-candidate-detail"><span class="mono">1,750.00 USDT</span><span>no exchange signal</span></div>
+          </article>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <footer class="trace-actionbar">
+    <p><i></i><span data-outcome-copy>Findings are provisional until the traversal closes. Nothing is dispatched from this screen.</span></p>
+    <div>
+      <a class="trace-action secondary" href="/cases/{{ case.id }}/canvas?snapshot={{ snapshot.id }}">Open canvas</a>
+      {% if finding %}<a class="trace-action primary" data-finding-action href="/findings/{{ finding.id }}" aria-disabled="true" tabindex="-1">View custody finding</a>{% else %}<span class="trace-action primary disabled" data-finding-action>View custody finding</span>{% endif %}
+    </div>
+  </footer>
+
+  <dialog class="trace-restart-dialog" data-restart-dialog aria-labelledby="restart-title">
+    <form method="dialog">
+      <span class="trace-dialog-mark" aria-hidden="true">↻</span>
+      <h2 id="restart-title">Restart this trace?</h2>
+      <p>The current evidence stays recorded. The replay will return to the seed address and resolve each hop again.</p>
+      <div><button value="cancel" class="secondary" type="submit">Keep current trace</button><button value="restart" class="primary" type="submit" data-restart-confirm>Restart trace</button></div>
+    </form>
+  </dialog>
+</div>
+{% endblock %}

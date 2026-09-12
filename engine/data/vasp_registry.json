@@ -1,0 +1,40 @@
+{
+  "revision": "fixture-2026-09-12",
+  "entities": [
+    {
+      "key": "coinsphere",
+      "name": "Coinsphere Global Pte Ltd",
+      "type": "cex",
+      "jurisdiction": "Singapore",
+      "fiu_ind_reg": "VA-0117",
+      "fiu_status": "registered_offshore",
+      "india_compliance_desk": true,
+      "le_contact": "le-requests@coinsphere.example.invalid",
+      "source_ref": "fixture://coinsphere"
+    }
+  ],
+  "addresses": [
+    {
+      "address": "TGh3c9PkL8Qn7MuYbxV1aZP2R6EeSsQ7hC",
+      "chain": "TRON",
+      "entity_key": "coinsphere",
+      "role": "deposit_hub",
+      "source": "controlled_fixture",
+      "source_ref": "fixture://coinsphere/deposit",
+      "verified_by": "Team Trinetra",
+      "verified_on": "2026-09-12",
+      "confidence": "high"
+    },
+    {
+      "address": "TCoinSphereHotWallet9HvS7Xb8WKJSSfVpR",
+      "chain": "TRON",
+      "entity_key": "coinsphere",
+      "role": "hot_wallet",
+      "source": "controlled_fixture",
+      "source_ref": "fixture://coinsphere/hot-wallet",
+      "verified_by": "Team Trinetra",
+      "verified_on": "2026-09-12",
+      "confidence": "high"
+    }
+  ]
+}

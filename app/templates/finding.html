@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}Custody finding · TRINETRA{% endblock %}
+{% block body_class %}finding-page{% endblock %}
+{% block page_styles %}
+  <link rel="stylesheet" href="/static/workspace-shell.css">
+  <link rel="stylesheet" href="/static/finding.css">
+{% endblock %}
+{% block page_scripts %}<script defer src="/static/finding.js"></script>{% endblock %}
+
+{% block authenticated %}
+{% set blocked_count = review_items | rejectattr('checked') | list | length %}
+{% set trace_hops = demo.dominant_path %}
+{% set terminal = demo.terminal %}
+{% set entity = demo.entity %}
+{% set parked_value_base = demo.parked | sum(attribute='value_base') %}
+{% set parked_share_bp = demo.parked | sum(attribute='share_bp') %}
+<div class="finding-app" data-finding-id="{{ finding.id }}">
+  <header class="finding-topbar">
+    <div class="finding-top-brand">Trinetra</div>
+    <div class="finding-top-main">
+      <div class="finding-top-fact"><span>Complaint reference</span><b class="mono">{{ case.ack_no }}</b></div>
+      <div class="finding-top-fact"><span>Trace closed</span><b class="mono">{{ snapshot.closed_ts_ms | ist }}</b></div>
+      <div class="finding-custody-state"><i></i>Custody identified</div>
+      <div class="finding-top-spacer"></div>
+      <a class="finding-top-button muted" href="/cases/{{ case.id }}/canvas?snapshot={{ snapshot.id }}">Back to canvas</a>
+      <button class="finding-top-button lock{{ ' ready' if blocked_count == 0 else '' }}" type="button" data-review-jump>{% if blocked_count %}Locked: <span data-blocked-count>{{ blocked_count }}</span> {{ 'check' if blocked_count == 1 else 'checks' }} remaining{% else %}Prepare freeze notice{% endif %}</button>
+    </div>
+  </header>
+
+  <div class="finding-body">
+    {% set active_page = 'finding' %}
+    {% include "_workspace_nav.html" %}
+    <div class="finding-workspace">
+      <main class="finding-main">
+        <section class="finding-hero">
+          <span class="finding-confidence"><i></i>High confidence</span>
+          <h1>The funds came to rest at a<br>registered exchange</h1>
+          <p>{{ trace_hops | length - 1 }} hops from the victim payment at hop 0, {{ terminal.amount_credited_base | amount }} entered a deposit address held by {{ entity.name }}, a VASP registered with FIU-IND. The address is customer-attributable, so the holder can be identified and the balance restrained on a lawful request.</p>
+          <div class="finding-metrics">
+            <div><span>Amount at rest</span><b class="mono green">{{ terminal.amount_credited_base | amount_number }}</b><small>{{ case.asset_symbol }}-TRC20, {{ terminal.retained_share_bp | pctcompact }} of the reported loss</small></div>
+            <div><span>Hops to custody</span><b class="mono">{{ trace_hops | length }}</b><small>within the depth cap set for this case</small></div>
+            <div><span>Time to custody</span><b class="mono">{{ terminal.time_to_custody_s // 3600 }} h {{ (terminal.time_to_custody_s % 3600) // 60 }} m</b><small>from victim payment to deposit</small></div>
+          </div>
+        </section>
+
+        <section class="finding-path-section">
+          <h2>Path of the largest surviving share</h2>
+          <div class="finding-path" aria-label="Five-hop dominant fund-flow path">
+            {% set path_labels = ['Victim payment', 'Pass-through', 'Peel chain', 'Consolidation', 'Exchange deposit'] %}
+            {% for node in trace_hops %}
+              {% set tone = 'green' if loop.last else 'amber' if node.hop == 2 else 'blue' if loop.first else 'slate' %}
+              <div class="finding-path-unit">
+                <div class="finding-path-node {{ tone }}" data-address="{{ node.address }}" title="{{ node.address }}"><span class="finding-hop">H{{ node.hop }}</span><i><em></em></i><strong>{{ path_labels[loop.index0] }}</strong><small class="mono">{{ node.address[:6] }}…{{ node.address[-4:] }}</small></div>
+                {% if not loop.last %}<span class="finding-arrow"><i></i></span>{% endif %}
+              </div>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="finding-basis-section">
+          <h2>What the finding rests on</h2>
+          <div class="finding-basis-grid">
+            <article><h3><i class="green"></i>Deposit-address attribution</h3><p>214 addresses in the same cluster have prior confirmed links to Coinsphere Global deposits.</p><small class="mono">attribution set rev. 2026-08-24</small></article>
+            <article><h3><i class="green"></i>Unbroken value chain</h3><p>Every hop is a direct transfer. No mixer, bridge or privacy protocol appears in the path.</p><small class="mono">hops 1 to 4 direct</small></article>
+            <article><h3><i class="amber"></i>Peel-chain remainder</h3><p>{{ parked_value_base | amount }} was peeled into two branches below the value floor. Both are parked in the case record and shown on the canvas as parked branch A and B.</p><small class="mono">{{ demo.parked | length }} branches, {{ parked_share_bp | pctcompact }} of value</small></article>
+            <article><h3><i class="amber"></i>Corroborating dockets</h3><p>One earlier complaint shares the same deposit address.</p><small class="mono">{{ demo.linked_cases[0].ack_no }}</small></article>
+          </div>
+        </section>
+      </main>
+
+      <aside class="finding-review-rail">
+        <h2>Custodian of record</h2>
+        <section class="finding-custodian">
+          <h3>{{ entity.name }}</h3>
+          <dl>
+            <dt>Registration</dt><dd class="mono">FIU-IND {{ entity.fiu_ind_reg }}</dd><dt>Chain and asset</dt><dd class="mono">{{ case.chain_family }} / {{ case.asset_symbol }}-TRC20</dd>
+            <dt>Compliance desk</dt><dd class="mono">le-requests@coinsphere</dd><dt>Notice channel</dt><dd class="mono">Portal + email</dd>
+            <dt>Median response</dt><dd class="mono">11 h 40 m</dd><dt>Prior notices honoured</dt><dd class="mono">9 of 9</dd>
+          </dl>
+        </section>
+        <section class="finding-deposit">
+          <h3>Deposit address at rest</h3>
+          <button type="button" data-copy-address data-address="{{ finding.deposit_address }}" class="mono">{{ finding.deposit_address }}</button>
+          <p aria-live="polite" data-copy-hint>Select to copy. The address is quoted verbatim in the notice.</p>
+        </section>
+        <form id="finding-review-form" class="finding-review-form" method="post" action="/findings/{{ finding.id }}/checks">
+          <fieldset id="pre-notice-review">
+            <legend>Pre-notice review</legend>
+            {% for item in review_items %}
+              <label><input class="finding-review-check" type="checkbox" name="review_check" value="{{ item.key }}"{{ ' checked' if item.checked else '' }}><span>{{ item.label }}</span></label>
+            {% endfor %}
+          </fieldset>
+          <div class="finding-review-action{{ ' ready' if blocked_count == 0 else '' }}">
+            <p data-ready-copy>{% if blocked_count %}The notice cannot be drafted until every confirmation above is recorded against your name.{% else %}Every confirmation is recorded. The notice is ready to prepare.{% endif %}</p>
+            <button type="submit" name="action" value="prepare"{{ ' disabled' if blocked_count else '' }} data-prepare-notice>Prepare freeze notice</button>
+          </div>
+        </form>
+      </aside>
+    </div>
+  </div>
+
+  <footer class="finding-footer"><strong>TRINETRA</strong><i></i><span>Crypto-forensics for a safer financial world.</span><span class="spacer"></span><span>Case: {{ case.ack_no }}</span><i></i><span>Chain: {{ case.chain_family }}</span><i></i><span>Trace closed: {{ snapshot.closed_ts_ms | ist }}</span><span class="health"><b></b>All systems operational</span></footer>
+</div>
+{% endblock %}

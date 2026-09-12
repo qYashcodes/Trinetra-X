@@ -1,0 +1,37 @@
+{% set trace_hops = demo.dominant_path %}
+{% set terminal = demo.terminal %}
+{% set entity = demo.entity %}
+{% set terminal_hop = trace_hops[-1] %}
+<span class="notice-sr-only">Freeze and information preservation notice</span>
+<div class="notice-letterhead">
+  <span class="notice-emblem" aria-label="State emblem"><i>☸</i><b>सत्यमेव जयते</b></span>
+  <div><small>GOVERNMENT OF MAHARASHTRA · POLICE DEPARTMENT</small><strong>OFFICE OF THE CYBER CRIME CELL</strong><span>Pune City Police, Maharashtra — 411001 · cybercell-pune@mahapolice.gov.in</span></div>
+  <i class="notice-letterhead-balance"></i>
+</div>
+<div class="notice-number"><span>No. {{ notice.notice_no }}</span><span>Dated: 30 August 2026</span></div>
+<p class="notice-addressee">To,<br>The Compliance Officer,<br>{{ entity.name }},<br>FIU-IND Registration {{ entity.fiu_ind_reg }}.</p>
+<p class="notice-subject"><strong>Subject:</strong> <u>Direction to restrain and preserve virtual digital assets held at a deposit address traced from the payment identified in the filed complaint.</u></p>
+<p>Madam / Sir,</p>
+<p class="notice-justified">1.&nbsp;&nbsp;A complaint bearing acknowledgement number {{ case.ack_no }} was filed on 30 August 2026 reporting the loss of {{ case.amount_reported_base | amount }} in an alleged investment fraud. An on-chain examination of the reported payment establishes that the funds were moved through {{ trace_hops | length - 2 }} intermediate addresses and that {{ terminal.amount_credited_base | amount }} was deposited into an address maintained on your platform, as set out below:</p>
+<table class="notice-facts"><tbody>
+  <tr><td>Complaint acknowledgement</td><td>{{ case.ack_no }}</td></tr>
+  <tr><td>Trace snapshot</td><td>TS-2026-08-30-0917</td></tr>
+  <tr><td>Victim payment</td><td>{{ case.payment_ts_ms | ist }}</td></tr>
+  <tr><td>Amount reported lost</td><td>{{ case.amount_reported_base | amount }}</td></tr>
+  <tr><td>Chain and asset</td><td>{{ case.chain_family }}, {{ case.asset_symbol }}-TRC20</td></tr>
+  <tr><td>Deposit address on your platform</td><td>{{ finding.deposit_address }}</td></tr>
+  <tr><td>Amount traced to that address</td><td>{{ finding.amount_credited_base | amount }}</td></tr>
+  <tr><td>Deposit observed at</td><td>{{ terminal_hop.ts_ms | ist }}</td></tr>
+  <tr><td>Originating transaction hash</td><td>{{ case.payment_txid }}</td></tr>
+</tbody></table>
+<p class="notice-justified">2.&nbsp;&nbsp;You are directed, in exercise of the powers conferred on the undersigned under Section 106 of the Bharatiya Nagarik Suraksha Sanhita, 2023, read with the standing instructions of the State Nodal Officer for cybercrime, to take the following steps within <span data-deadline-words>{% if notice.deadline_hours == 72 %}seventy-two hours{% elif notice.deadline_hours == 168 %}seven days{% else %}twenty-four hours{% endif %}</span> of receipt of this notice:</p>
+<ol type="a">
+  <li>Place a hold on the balance standing at the said deposit address, and on the customer account to which it is credited, to the extent of {{ finding.amount_credited_base | amount }}.</li>
+  <li>Preserve all account-opening records, know-your-customer documents, login and device logs, and the deposit and withdrawal history of that account for the period 1 July 2026 to date.</li>
+  <li>Furnish to this office the registered name, contact particulars and verification status of the account holder.</li>
+  <li>Confirm compliance in writing to the undersigned, quoting the notice number above.</li>
+</ol>
+<p class="notice-justified">3.&nbsp;&nbsp;The restraint is to be maintained until it is withdrawn in writing by this office or modified by an order of a competent court. Any dealing with the said balance after receipt of this notice will be treated as non-compliance and reported to the registering authority.</p>
+<p class="notice-justified">4.&nbsp;&nbsp;Kindly acknowledge receipt of this notice and confirm compliance in writing to the undersigned, quoting the notice number above.</p>
+<div class="notice-signature"><div><span>Yours faithfully,</span><i></i><strong>{{ demo.officers.io.name }}</strong><span>Investigating Officer, Cyber Crime Cell</span><small class="mono">PIS {{ demo.officers.io.pis }}</small></div></div>
+<div class="notice-enclosures"><div>Encl: Trace report, 6 pages, with graph exhibit.</div><div>Copy to:</div><div>&nbsp;&nbsp;1.&nbsp;State Nodal Officer, Cybercrime, Maharashtra — for information.</div><div>&nbsp;&nbsp;2.&nbsp;FIU-IND Liaison Cell — for information.</div><div>&nbsp;&nbsp;3.&nbsp;Case file {{ case.ack_no }}.</div></div>

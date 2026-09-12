@@ -1,0 +1,15 @@
+{
+  "revision": "fixture-2026-09-12",
+  "bridges": [
+    {
+      "key": "generic_bridge_fixture",
+      "name": "Generic bridge fixture",
+      "source_chain": "TRON",
+      "target_families": ["EVM"],
+      "addresses": [],
+      "source_ref": "fixture://bridge-registry",
+      "verified_by": "Team Trinetra",
+      "verified_on": "2026-09-12"
+    }
+  ]
+}

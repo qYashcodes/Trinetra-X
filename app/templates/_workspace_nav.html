@@ -1,0 +1,34 @@
+<nav class="workspace-nav" aria-label="Main">
+  <div class="workspace-tricolour" aria-hidden="true"><i></i><i></i><i></i></div>
+  <div class="workspace-nav-brand">
+    <span class="workspace-nav-mark">त्रि</span>
+    <span><strong>TRINETRA</strong><small>Virtual asset tracing desk</small></span>
+  </div>
+  <div class="workspace-nav-links">
+    <section>
+      <h2>Cases</h2>
+      <a class="{{ 'active' if active_page == 'intake' else '' }}" href="/cases/new"><span>New case</span><b>4</b></a>
+      <a class="{{ 'active' if active_page == 'docket' else '' }}" href="/docket"><span>Case docket</span><b>37</b></a>
+    </section>
+    <section>
+      <h2>Investigations</h2>
+      <a class="{{ 'active' if active_page == 'traces' else '' }}" href="/traces"><span>Active traces</span><b>2</b></a>
+      <a class="{{ 'active' if active_page == 'canvas' else '' }}" href="/cases/1/canvas"><span>Investigator canvas</span></a>
+    </section>
+    <section>
+      <h2>Outputs</h2>
+      <a class="{{ 'active' if active_page == 'finding' else '' }}" href="/findings/1"><span>Custody findings</span></a>
+      <a class="{{ 'active' if active_page == 'notice' else '' }}" href="/notices"><span>Freeze notices</span><b>11</b></a>
+    </section>
+    <section>
+      <h2>Tools</h2>
+      <a class="{{ 'active' if active_page == 'risk' else '' }}" href="/risk-check"><span>Risk check</span></a>
+    </section>
+  </div>
+  <div class="workspace-nav-spacer"></div>
+  <div class="workspace-nav-officer">
+    <strong>{{ user.name }}</strong>
+    <span>{{ user.desk }}</span>
+    <small>Prototype for Smart India Hackathon 2026. Not an official Government of India website.</small>
+  </div>
+</nav>

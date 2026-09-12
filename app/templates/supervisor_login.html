@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block public %}
+<section class="login">
+  <div class="login-panel">
+    <h1>Supervisor prototype login</h1>
+    <form method="post" action="/auth/prototype">
+      <input type="hidden" name="role" value="supervisor">
+      <button>Sign in as ACP S. Deshmukh</button>
+    </form>
+  </div>
+</section>
+{% endblock %}

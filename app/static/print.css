@@ -1,0 +1,5 @@
+@page { size: A4; margin: 18mm; }
+body { background: white; }
+.nav, .topbar, .footer, .notice-top, .notice-layout > aside { display: none; }
+.notice-layout { display: block; padding: 0; }
+.a4 { border: 0; width: auto; min-height: auto; padding: 0; }

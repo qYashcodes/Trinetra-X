@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="TRINETRA mark">
+  <rect x="6" y="6" width="52" height="52" rx="8" fill="#ffffff" stroke="#0b2e6f" stroke-width="4"/>
+  <path d="M12 32c8-11 18-16 30-12 5 2 9 6 10 12-5 8-12 12-21 12-8 0-14-4-19-12z" fill="#eef1f6" stroke="#0b2e6f" stroke-width="3"/>
+  <circle cx="32" cy="32" r="8" fill="#17427f"/>
+  <circle cx="32" cy="32" r="3" fill="#ffffff"/>
+  <path d="M13 12h38" stroke="#ff9933" stroke-width="3"/>
+  <path d="M13 52h38" stroke="#138808" stroke-width="3"/>
+</svg>
