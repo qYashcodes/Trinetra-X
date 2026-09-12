@@ -22,7 +22,7 @@
       <section class="canvas-case-card">
         <div class="canvas-case-summary">
           <div class="canvas-case-title-row">
-            <h1>{{ demo.case.ack_no }}</h1>
+            <h1>{{ case.ack_no if case is defined else demo.case.ack_no }}</h1>
             <span class="canvas-chip canvas-chip-green"><i></i>Trace complete</span>
           </div>
           <p>Reported / at rest:&nbsp; <strong>{{ demo.case.amount_reported_base | amount_number }} / {{ demo.terminal.amount_credited_base | amount_number }} {{ demo.case.asset.symbol }}</strong>&nbsp; <strong>({{ demo.terminal.retained_share_bp | pctbp }} retained)</strong></p>

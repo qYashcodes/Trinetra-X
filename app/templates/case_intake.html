@@ -15,6 +15,7 @@
         <h1>Open a case from a filed complaint</h1>
         <p>Enter the acknowledgement number issued by the national cybercrime<br class="desktop-break"> portal, or the receipt code held by the complainant. The record supplies the<br class="desktop-break"> payment time, amount and recipient address.</p>
         <form method="post" action="/cases/ingest" class="intake-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <label for="ack_no">Acknowledgement number or report code <em>*</em></label>
           <div class="intake-form-row">
             <input id="ack_no" name="ack_no" value="{{ ack_value }}" pattern="^(NCRP/\d{4}/[A-Z]{2}/\d{7})$|^[A-Z0-9]{8,14}$" aria-describedby="ack-help sample-references">
@@ -112,6 +113,7 @@
     <a class="clear-button" href="/cases/new">Clear</a>
     {% if record and completed_particulars == 8 %}
     <form method="post" action="/cases/start">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="ack_no" value="{{ record.ack_no }}">
       <input type="hidden" name="reviewed" value="yes">
       <button type="submit">Start trace</button>

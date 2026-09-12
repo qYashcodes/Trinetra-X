@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import json
+import secrets
+import zipfile
 from contextlib import asynccontextmanager
+from io import BytesIO
 from pathlib import Path
 from typing import Annotated
+from hmac import compare_digest
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -25,16 +29,18 @@ from app.models import Case, CaseStage, Dispatch, Finding, Notice, TraceEvent, T
 from app.providers.oidc import build_authorization_request, verify_callback
 from app.providers.webauthn import registration_options, verify_registration
 from app.repository import (
+    case_from_complaint,
     ensure_finding_review_checks,
     finding_review_specs,
     get_or_create_trace,
     prepare_notice,
     seed_demo,
 )
-from app.services.audit import append_audit_event
+from app.services.audit import append_audit_event, verify_audit_chain
 from app.services.demo import demo_case
 from app.services.exhibit import snapshot_svg
 from app.services.hash import sha256_bytes
+from app.services.integrations import integration_status
 from app.services.money import format_amount, format_millions
 from app.services.notices import notice_view_model, sahyog_manifest
 from app.services.risk import risk_check, risk_page_data
@@ -138,6 +144,167 @@ def risk_notice_state(session: Session) -> dict:
     }
 
 
+def case_trail(
+    case: Case,
+    snapshot: TraceSnapshot | None,
+    finding: Finding | None,
+    notice: Notice | None,
+    dispatches: list[Dispatch] | None = None,
+) -> list[dict]:
+    dispatches = dispatches or []
+    steps = [
+        {
+            "label": "Complaint ingested",
+            "detail": case.ack_no,
+            "status": "complete",
+            "ts_ms": case.created_ts_ms,
+        },
+        {
+            "label": "Trace snapshot sealed",
+            "detail": snapshot.sha256[:12] if snapshot else "Awaiting trace",
+            "status": "complete" if snapshot else "pending",
+            "ts_ms": snapshot.closed_ts_ms if snapshot else None,
+        },
+        {
+            "label": "Custody finding recorded",
+            "detail": finding.deposit_address[:6] + "..." + finding.deposit_address[-4:] if finding and finding.deposit_address else "Review pending",
+            "status": "complete" if finding else "pending",
+            "ts_ms": finding.created_ts_ms if finding else None,
+        },
+        {
+            "label": "Freeze notice prepared",
+            "detail": notice.notice_no if notice else "Not prepared",
+            "status": "complete" if notice else "pending",
+            "ts_ms": notice.created_ts_ms if notice else None,
+        },
+        {
+            "label": "Dispatch recorded",
+            "detail": f"{len(dispatches)} channel records" if dispatches else "Not dispatched",
+            "status": "complete" if dispatches else "pending",
+            "ts_ms": max((row.created_ts_ms for row in dispatches), default=None),
+        },
+    ]
+    for index, step in enumerate(steps, start=1):
+        step["index"] = index
+    return steps
+
+
+def evidence_manifest(
+    case: Case,
+    snapshot: TraceSnapshot | None,
+    finding: Finding | None,
+    notice: Notice | None,
+    dispatches: list[Dispatch],
+) -> dict:
+    graph_svg = snapshot_svg(snapshot.result_json).encode("utf-8") if snapshot else b""
+    return {
+        "schema": "trinetra.evidence_manifest/1",
+        "case": {
+            "id": case.id,
+            "ack_no": case.ack_no,
+            "stage": case.stage.value if hasattr(case.stage, "value") else str(case.stage),
+            "reported_address": case.reported_address,
+            "amount_reported_base": case.amount_reported_base,
+            "asset": case.asset_symbol,
+        },
+        "snapshot": None
+        if not snapshot
+        else {
+            "id": snapshot.id,
+            "schema": snapshot.snapshot_schema,
+            "sha256": snapshot.sha256,
+            "status": snapshot.status,
+            "started_ts_ms": snapshot.started_ts_ms,
+            "closed_ts_ms": snapshot.closed_ts_ms,
+            "graph_exhibit_sha256": sha256_bytes(graph_svg),
+        },
+        "finding": None
+        if not finding
+        else {
+            "id": finding.id,
+            "terminal_kind": finding.terminal_kind,
+            "custodian_key": finding.custodian_key,
+            "deposit_address": finding.deposit_address,
+            "amount_credited_base": finding.amount_credited_base,
+            "review_checks": finding.review_checks,
+        },
+        "notice": None
+        if not notice
+        else {
+            "id": notice.id,
+            "notice_no": notice.notice_no,
+            "status": notice.status,
+            "deadline_hours": notice.deadline_hours,
+            "pdf_sha256": notice.pdf_sha256,
+            "countersigned": bool(notice.countersigned_by_pis),
+        },
+        "dispatches": [
+            {
+                "channel": row.channel,
+                "target": row.target,
+                "status": row.status,
+                "attempts": row.attempts,
+                "created_ts_ms": row.created_ts_ms,
+            }
+            for row in dispatches
+        ],
+        "audit": {
+            "chain_verified": verify_audit_chain(),
+            "storage": "var/audit.jsonl",
+        },
+    }
+
+
+def evidence_bundle_bytes(
+    case: Case,
+    snapshot: TraceSnapshot | None,
+    finding: Finding | None,
+    notice: Notice | None,
+    dispatches: list[Dispatch],
+) -> bytes:
+    manifest = evidence_manifest(case, snapshot, finding, dispatches=dispatches, notice=notice)
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("manifest.json", json.dumps(manifest, indent=2, sort_keys=True))
+        archive.writestr(
+            "README.txt",
+            "\n".join(
+                [
+                    "TRINETRA evidence bundle",
+                    "",
+                    f"Case: {case.ack_no}",
+                    "Purpose: offline investigative-aid export for review.",
+                    "Legal posture: specimen prototype; not for live dispatch unless configured and approved.",
+                    "No guilt assertion is made by this bundle.",
+                    "",
+                ]
+            ),
+        )
+        archive.writestr("case.json", json.dumps(case.model_dump(mode="json"), indent=2, sort_keys=True))
+        if snapshot:
+            archive.writestr(
+                "trace_snapshot.json",
+                json.dumps(snapshot.result_json, indent=2, sort_keys=True),
+            )
+            archive.writestr("graph_exhibit.svg", snapshot_svg(snapshot.result_json))
+        if finding:
+            archive.writestr(
+                "custody_finding.json",
+                json.dumps(finding.model_dump(mode="json"), indent=2, sort_keys=True),
+            )
+        if notice:
+            archive.writestr(
+                "notice_state.json",
+                json.dumps(notice.model_dump(mode="json"), indent=2, sort_keys=True),
+            )
+        if dispatches:
+            archive.writestr(
+                "dispatch_records.json",
+                json.dumps([row.model_dump(mode="json") for row in dispatches], indent=2, sort_keys=True),
+            )
+    return buffer.getvalue()
+
+
 def build_intake_particulars(record: dict | None, chain: str | None = None, *, attempted: bool = False) -> tuple[list[dict], int, str]:
     missing_text = "Manual addition required"
 
@@ -192,6 +359,48 @@ def session_user(request: Request) -> dict:
     return user
 
 
+def csrf_token(request: Request) -> str:
+    token = request.session.get("csrf_token")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        request.session["csrf_token"] = token
+    return str(token)
+
+
+def require_csrf(request: Request, submitted_token: str | None) -> None:
+    expected = request.session.get("csrf_token")
+    if not expected or not submitted_token or not compare_digest(str(expected), str(submitted_token)):
+        raise HTTPException(403, "Invalid or missing workflow token.")
+
+
+def set_active_case(request: Request, case: Case, snapshot: TraceSnapshot | None = None, finding: Finding | None = None) -> None:
+    request.session["active_case"] = {
+        "id": case.id,
+        "ack_no": case.ack_no,
+        "snapshot_id": snapshot.id if snapshot else None,
+        "finding_id": finding.id if finding else None,
+    }
+
+
+def active_case_from_session(request: Request) -> dict:
+    active = request.session.get("active_case") or {}
+    return {
+        "id": active.get("id"),
+        "ack_no": active.get("ack_no"),
+        "snapshot_id": active.get("snapshot_id"),
+        "finding_id": active.get("finding_id"),
+    }
+
+
+def get_active_case(request: Request, session: Session) -> Case | None:
+    active = active_case_from_session(request)
+    case_id = active.get("id")
+    if not case_id:
+        return None
+    case = session.get(Case, int(case_id))
+    return case
+
+
 def template_context(request: Request, user: dict | None = None) -> dict:
     return {
         "request": request,
@@ -200,6 +409,8 @@ def template_context(request: Request, user: dict | None = None) -> dict:
         "health": {"ok": True, "label": "Fixture systems operational"},
         "source_health": complaints.health(),
         "demo": demo_case(),
+        "active_case": active_case_from_session(request),
+        "csrf_token": csrf_token(request) if user else "",
     }
 
 
@@ -248,9 +459,15 @@ def logout(request: Request) -> Response:
 
 @app.get("/docket", response_class=HTMLResponse)
 def docket(request: Request, session: Session = Depends(get_session), user: dict = Depends(session_user)) -> HTMLResponse:
-    case = seed_demo(session)
+    case = get_active_case(request, session) or seed_demo(session)
     snapshot, finding = get_or_create_trace(session, case)
+    set_active_case(request, case, snapshot, finding)
     notice = session.exec(select(Notice).where(Notice.case_id == case.id)).first()
+    dispatches = (
+        session.exec(select(Dispatch).where(Dispatch.notice_id == notice.id).order_by(Dispatch.id)).all()
+        if notice
+        else []
+    )
     ctx = {
         **template_context(request, user),
         "case": case,
@@ -258,13 +475,15 @@ def docket(request: Request, session: Session = Depends(get_session), user: dict
         "snapshot": snapshot,
         "finding": finding,
         "notice": notice,
-        "docket": docket_fixture(),
+        "case_trail": case_trail(case, snapshot, finding, notice, dispatches),
+        "docket": docket_fixture(case),
     }
     return templates.TemplateResponse(request, "docket.html", ctx)
 
 
 @app.get("/cases/new", response_class=HTMLResponse)
 def new_case(request: Request, user: dict = Depends(session_user)) -> HTMLResponse:
+    request.session.pop("pending_case_ack", None)
     particulars, completed, intake_state = build_intake_particulars(None)
     return templates.TemplateResponse(
         request,
@@ -286,8 +505,10 @@ def new_case(request: Request, user: dict = Depends(session_user)) -> HTMLRespon
 def ingest_case(
     request: Request,
     ack_no: Annotated[str, Form()],
+    csrf_token: Annotated[str | None, Form()] = None,
     user: dict = Depends(session_user),
 ) -> HTMLResponse:
+    require_csrf(request, csrf_token)
     normalized_ack = ack_no.strip()
     record = complaints.fetch(normalized_ack) if normalized_ack else None
     chain = detect_chain(record["reported_address"]) if record else None
@@ -296,6 +517,10 @@ def ingest_case(
         chain,
         attempted=bool(normalized_ack),
     )
+    if record and completed == len(particulars):
+        request.session["pending_case_ack"] = record["ack_no"]
+    else:
+        request.session.pop("pending_case_ack", None)
     return templates.TemplateResponse(
         request,
         "case_intake.html",
@@ -315,22 +540,47 @@ def ingest_case(
 
 @app.post("/cases/start")
 def start_case(
+    request: Request,
     ack_no: Annotated[str, Form()],
     reviewed: Annotated[str | None, Form()] = None,
+    csrf_token: Annotated[str | None, Form()] = None,
     session: Session = Depends(get_session),
     user: dict = Depends(session_user),
 ) -> Response:
+    require_csrf(request, csrf_token)
     if not reviewed:
         raise HTTPException(400, "Imported particulars must be reviewed before tracing.")
-    case = seed_demo(session)
-    snapshot, _finding = get_or_create_trace(session, case)
+    normalized_ack = ack_no.strip()
+    if normalized_ack != request.session.get("pending_case_ack"):
+        raise HTTPException(409, "Ingest the complaint record again before starting this trace.")
+    record = complaints.fetch(normalized_ack)
+    if not record:
+        raise HTTPException(404, "Complaint reference not found in the fixture feed.")
+    particulars, completed, _intake_state = build_intake_particulars(
+        record,
+        detect_chain(record["reported_address"]),
+        attempted=True,
+    )
+    if completed != len(particulars):
+        raise HTTPException(400, "All complaint particulars must be present before tracing.")
+    case = case_from_complaint(session, record)
+    snapshot, finding = get_or_create_trace(session, case)
+    set_active_case(request, case, snapshot, finding)
+    request.session.pop("pending_case_ack", None)
     append_audit_event(user["pis"], "trace.start", case.ack_no, {"snapshot_id": snapshot.id})
     return RedirectResponse(f"/traces/{snapshot.id}", status_code=303)
 
 
 @app.get("/traces", response_class=HTMLResponse)
 def traces(request: Request, session: Session = Depends(get_session), user: dict = Depends(session_user)) -> Response:
-    latest = session.exec(select(TraceSnapshot).order_by(TraceSnapshot.id.desc())).first()
+    active = active_case_from_session(request)
+    latest = session.get(TraceSnapshot, int(active["snapshot_id"])) if active.get("snapshot_id") else None
+    if not latest:
+        active_case = get_active_case(request, session)
+        if active_case:
+            latest = session.exec(
+                select(TraceSnapshot).where(TraceSnapshot.case_id == active_case.id).order_by(TraceSnapshot.id.desc())
+            ).first()
     if not latest:
         case = seed_demo(session)
         latest, _finding = get_or_create_trace(session, case)
@@ -349,6 +599,8 @@ def trace_view(
         raise HTTPException(404)
     case = session.get(Case, snapshot.case_id)
     finding = session.exec(select(Finding).where(Finding.snapshot_id == snapshot.id)).first()
+    if case and finding:
+        set_active_case(request, case, snapshot, finding)
     events = session.exec(select(TraceEvent).where(TraceEvent.snapshot_id == snapshot.id).order_by(TraceEvent.seq)).all()
     return templates.TemplateResponse(
         request,
@@ -389,6 +641,8 @@ def canvas(
     snap = session.get(TraceSnapshot, snapshot) if snapshot else None
     if not snap:
         snap = session.exec(select(TraceSnapshot).where(TraceSnapshot.case_id == case_id).order_by(TraceSnapshot.id.desc())).first()
+    finding = session.exec(select(Finding).where(Finding.snapshot_id == snap.id)).first() if snap else None
+    set_active_case(request, case, snap, finding)
     return templates.TemplateResponse(
         request,
         "canvas.html",
@@ -409,6 +663,8 @@ def finding_view(
     finding = ensure_finding_review_checks(session, finding)
     case = session.get(Case, finding.case_id)
     snapshot = session.get(TraceSnapshot, finding.snapshot_id)
+    if case and snapshot:
+        set_active_case(request, case, snapshot, finding)
     specs = finding_review_specs()
     review_items = [
         {
@@ -443,6 +699,7 @@ async def update_checks(
         raise HTTPException(404)
     finding = ensure_finding_review_checks(session, finding)
     form = await request.form()
+    require_csrf(request, str(form.get("csrf_token") or ""))
     keys = [str(spec["key"]) for spec in finding_review_specs()]
     submitted = {str(value) for value in form.getlist("review_check")}
     unknown = submitted.difference(keys)
@@ -469,9 +726,12 @@ async def update_checks(
 @app.post("/findings/{finding_id}/notice")
 def create_notice(
     finding_id: int,
+    request: Request,
+    csrf_token: Annotated[str | None, Form()] = None,
     session: Session = Depends(get_session),
     user: dict = Depends(session_user),
 ) -> Response:
+    require_csrf(request, csrf_token)
     finding = session.get(Finding, finding_id)
     if not finding:
         raise HTTPException(404)
@@ -485,19 +745,33 @@ def create_notice(
 
 @app.get("/notices")
 def notices(
+    request: Request,
     session: Session = Depends(get_session),
     _user: dict = Depends(session_user),
 ) -> Response:
     """Open the latest notice, or return to the finding gate when none exists yet."""
-    latest_notice = session.exec(
-        select(Notice).order_by(Notice.created_ts_ms.desc(), Notice.id.desc())
-    ).first()
+    active = active_case_from_session(request)
+    latest_notice = None
+    if active.get("id"):
+        latest_notice = session.exec(
+            select(Notice)
+            .where(Notice.case_id == int(active["id"]))
+            .order_by(Notice.created_ts_ms.desc(), Notice.id.desc())
+        ).first()
+    if not latest_notice:
+        latest_notice = session.exec(
+            select(Notice).order_by(Notice.created_ts_ms.desc(), Notice.id.desc())
+        ).first()
     if latest_notice:
         return RedirectResponse(f"/notices/{latest_notice.id}", status_code=307)
 
-    latest_finding = session.exec(
-        select(Finding).order_by(Finding.created_ts_ms.desc(), Finding.id.desc())
-    ).first()
+    latest_finding = None
+    if active.get("finding_id"):
+        latest_finding = session.get(Finding, int(active["finding_id"]))
+    if not latest_finding:
+        latest_finding = session.exec(
+            select(Finding).order_by(Finding.created_ts_ms.desc(), Finding.id.desc())
+        ).first()
     if not latest_finding:
         case = seed_demo(session)
         _snapshot, latest_finding = get_or_create_trace(session, case)
@@ -517,6 +791,8 @@ def notice_view(
     case = session.get(Case, notice.case_id)
     finding = session.get(Finding, notice.finding_id)
     snapshot = session.get(TraceSnapshot, finding.snapshot_id)
+    if case and finding and snapshot:
+        set_active_case(request, case, snapshot, finding)
     vm = notice_view_model(case.model_dump(), snapshot.result_json, notice.model_dump())
     dispatches = session.exec(
         select(Dispatch).where(Dispatch.notice_id == notice.id).order_by(Dispatch.id)
@@ -558,9 +834,12 @@ def notice_view(
 @app.post("/notices/{notice_id}/countersign-request")
 def request_notice_countersign(
     notice_id: int,
+    request: Request,
+    csrf_token: Annotated[str | None, Form()] = None,
     session: Session = Depends(get_session),
     user: dict = Depends(session_user),
 ) -> Response:
+    require_csrf(request, csrf_token)
     notice = session.get(Notice, notice_id)
     if not notice:
         raise HTTPException(404)
@@ -590,9 +869,12 @@ def request_notice_countersign(
 @app.post("/notices/{notice_id}/countersign")
 def countersign_notice(
     notice_id: int,
+    request: Request,
+    csrf_token: Annotated[str | None, Form()] = None,
     session: Session = Depends(get_session),
     user: dict = Depends(session_user),
 ) -> Response:
+    require_csrf(request, csrf_token)
     notice = session.get(Notice, notice_id)
     if not notice:
         raise HTTPException(404)
@@ -633,6 +915,7 @@ async def dispatch_notice(
     if notice.status == "dispatched":
         raise HTTPException(409, "This notice has already been dispatched.")
     form = await request.form()
+    require_csrf(request, str(form.get("csrf_token") or ""))
     channel_keys = [str(value) for value in form.getlist("channel")]
     if not channel_keys or len(channel_keys) != len(set(channel_keys)):
         raise HTTPException(422, "Select one or more unique dispatch channels.")
@@ -712,6 +995,18 @@ def risk_page(request: Request, user: dict = Depends(session_user)) -> HTMLRespo
     )
 
 
+@app.get("/integrations", response_class=HTMLResponse)
+def integrations_page(request: Request, user: dict = Depends(session_user)) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request,
+        "integrations.html",
+        {
+            **template_context(request, user),
+            "integration_status": integration_status(),
+        },
+    )
+
+
 @app.post("/risk-check", response_class=HTMLResponse)
 def run_risk_page(
     request: Request,
@@ -776,9 +1071,79 @@ def api_case_graph(case_id: int, view: str = "trace", session: Session = Depends
     return {"view": view, "snapshot_id": snapshot.id, "nodes": snapshot.result_json["hops"], "terminal": snapshot.result_json["terminal"]}
 
 
+@app.get("/api/cases/{case_id}/evidence-manifest")
+def api_case_evidence_manifest(
+    case_id: int,
+    session: Session = Depends(get_session),
+    _user: dict = Depends(session_user),
+) -> dict:
+    case = session.get(Case, case_id)
+    if not case:
+        raise HTTPException(404)
+    snapshot = session.exec(
+        select(TraceSnapshot).where(TraceSnapshot.case_id == case.id).order_by(TraceSnapshot.id.desc())
+    ).first()
+    finding = (
+        session.exec(select(Finding).where(Finding.snapshot_id == snapshot.id)).first()
+        if snapshot
+        else None
+    )
+    notice = (
+        session.exec(select(Notice).where(Notice.case_id == case.id).order_by(Notice.created_ts_ms.desc())).first()
+        if finding
+        else None
+    )
+    dispatches = (
+        session.exec(select(Dispatch).where(Dispatch.notice_id == notice.id).order_by(Dispatch.id)).all()
+        if notice
+        else []
+    )
+    return evidence_manifest(case, snapshot, finding, notice, dispatches)
+
+
+@app.get("/api/cases/{case_id}/evidence-bundle.zip")
+def api_case_evidence_bundle(
+    case_id: int,
+    session: Session = Depends(get_session),
+    _user: dict = Depends(session_user),
+) -> Response:
+    case = session.get(Case, case_id)
+    if not case:
+        raise HTTPException(404)
+    snapshot = session.exec(
+        select(TraceSnapshot).where(TraceSnapshot.case_id == case.id).order_by(TraceSnapshot.id.desc())
+    ).first()
+    finding = (
+        session.exec(select(Finding).where(Finding.snapshot_id == snapshot.id)).first()
+        if snapshot
+        else None
+    )
+    notice = (
+        session.exec(select(Notice).where(Notice.case_id == case.id).order_by(Notice.created_ts_ms.desc())).first()
+        if finding
+        else None
+    )
+    dispatches = (
+        session.exec(select(Dispatch).where(Dispatch.notice_id == notice.id).order_by(Dispatch.id)).all()
+        if notice
+        else []
+    )
+    filename = case.ack_no.replace("/", "-") + "-evidence-bundle.zip"
+    return Response(
+        evidence_bundle_bytes(case, snapshot, finding, notice, dispatches),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.get("/api/search")
 def api_search(q: str, limit: int = 10) -> dict:
     return {"results": search_records(q, limit)}
+
+
+@app.get("/api/integrations/status")
+def api_integrations_status(_user: dict = Depends(session_user)) -> dict:
+    return integration_status()
 
 
 @app.post("/api/risk-check")
@@ -816,11 +1181,16 @@ def exhibit_svg(snapshot_id: int, session: Session = Depends(get_session)) -> Re
 
 @app.get("/healthz")
 def healthz() -> dict:
+    status = integration_status()
     return {
         "ok": True,
         "mode": settings.mode,
         "browser_assets": "local",
         "legal_dispatch": "approved" if settings.legal_copy_approved else "fixture_only",
+        "integrations": {
+            group["key"]: group["status"]
+            for group in status["groups"]
+        },
     }
 
 

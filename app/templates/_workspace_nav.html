@@ -1,4 +1,5 @@
 <nav class="workspace-nav" aria-label="Main">
+  {% set nav_case = active_case|default({}) %}
   <div class="workspace-tricolour" aria-hidden="true"><i></i><i></i><i></i></div>
   <div class="workspace-nav-brand">
     <span class="workspace-nav-mark">त्रि</span>
@@ -13,16 +14,17 @@
     <section>
       <h2>Investigations</h2>
       <a class="{{ 'active' if active_page == 'traces' else '' }}" href="/traces"><span>Active traces</span><b>2</b></a>
-      <a class="{{ 'active' if active_page == 'canvas' else '' }}" href="/cases/1/canvas"><span>Investigator canvas</span></a>
+      <a class="{{ 'active' if active_page == 'canvas' else '' }}" href="{{ '/cases/' ~ nav_case.id ~ '/canvas' if nav_case.id else '/docket' }}"><span>Investigator canvas</span></a>
     </section>
     <section>
       <h2>Outputs</h2>
-      <a class="{{ 'active' if active_page == 'finding' else '' }}" href="/findings/1"><span>Custody findings</span></a>
+      <a class="{{ 'active' if active_page == 'finding' else '' }}" href="{{ '/findings/' ~ nav_case.finding_id if nav_case.finding_id else '/notices' }}"><span>Custody findings</span></a>
       <a class="{{ 'active' if active_page == 'notice' else '' }}" href="/notices"><span>Freeze notices</span><b>11</b></a>
     </section>
     <section>
       <h2>Tools</h2>
       <a class="{{ 'active' if active_page == 'risk' else '' }}" href="/risk-check"><span>Risk check</span></a>
+      <a class="{{ 'active' if active_page == 'integrations' else '' }}" href="/integrations"><span>Integration status</span></a>
     </section>
   </div>
   <div class="workspace-nav-spacer"></div>

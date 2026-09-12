@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Integration status · TRINETRA{% endblock %}
+{% block body_class %}integrations-page{% endblock %}
+{% block page_styles %}<link rel="stylesheet" href="/static/workspace-shell.css">{% endblock %}
+
+{% block authenticated %}
+{% set active_page = "integrations" %}
+<div class="integrations-app">
+  {% include "_workspace_nav.html" %}
+  <main class="integrations-workspace">
+    <header class="integrations-header">
+      <div>
+        <span>Configuration status</span>
+        <h1>Integration readiness</h1>
+        <p>TRINETRA is running in {{ integration_status.mode }} mode. This page shows whether live providers are configured without rendering any key, token, password or client secret.</p>
+      </div>
+      <a class="integration-json-link" href="/api/integrations/status">View JSON status</a>
+    </header>
+
+    <section class="integration-summary" aria-label="Integration safety summary">
+      <div><span>Environment</span><strong>{{ integration_status.environment }}</strong></div>
+      <div><span>Runtime mode</span><strong>{{ integration_status.mode }}</strong></div>
+      <div><span>Secrets rendered</span><strong>{{ 'No' if not integration_status.secrets_rendered else 'Yes' }}</strong></div>
+      <div><span>Dispatch posture</span><strong>{{ 'Fixture only' if not settings.legal_copy_approved else 'Approved' }}</strong></div>
+    </section>
+
+    <section class="integration-grid" aria-label="Configured integrations">
+      {% for group in integration_status.groups %}
+      <article class="integration-card {{ group.status }}">
+        <header>
+          <div>
+            <h2>{{ group.name }}</h2>
+            <p>{{ group.summary }}</p>
+          </div>
+          <span>{{ group.status | labelize }}</span>
+        </header>
+        <div class="integration-items">
+          {% for item in group["items"] %}
+          <div class="{{ item.status }}">
+            <i aria-hidden="true"></i>
+            <span>{{ item.label }}</span>
+            <b>{{ item.status | labelize }}</b>
+            <small>{{ item.detail }}</small>
+          </div>
+          {% endfor %}
+        </div>
+      </article>
+      {% endfor %}
+    </section>
+
+    <section class="integration-note">
+      <h2>Live handoff gates</h2>
+      <p>Government SSO, complaint ingestion and SAHYOG dispatch remain integration-pending until approved metadata, schemas, credentials and legal copy are configured outside the repository. Fixture mode is intentional for the offline prototype.</p>
+    </section>
+  </main>
+</div>
+{% endblock %}

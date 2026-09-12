@@ -87,8 +87,8 @@
       <div><button type="submit" form="notice-dispatch-form" data-confirm-send>Dispatch notice</button><button type="button" class="notice-outline" data-cancel-send>Cancel</button></div>
     </div>
   </div>
-  <form id="notice-countersign-request-form" method="post" action="/notices/{{ notice.id }}/countersign-request" hidden></form>
-  <form id="notice-countersign-form" method="post" action="/notices/{{ notice.id }}/countersign" hidden></form>
-  <form id="notice-dispatch-form" method="post" action="/notices/{{ notice.id }}/dispatch" hidden></form>
+  <form id="notice-countersign-request-form" method="post" action="/notices/{{ notice.id }}/countersign-request" hidden><input type="hidden" name="csrf_token" value="{{ csrf_token }}"></form>
+  <form id="notice-countersign-form" method="post" action="/notices/{{ notice.id }}/countersign" hidden><input type="hidden" name="csrf_token" value="{{ csrf_token }}"></form>
+  <form id="notice-dispatch-form" method="post" action="/notices/{{ notice.id }}/dispatch" hidden><input type="hidden" name="csrf_token" value="{{ csrf_token }}"></form>
 </div>
 {% endblock %}

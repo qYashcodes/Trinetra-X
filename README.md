@@ -24,6 +24,19 @@ Local verification that does not require the web dependencies:
 python -m unittest discover -s tests -p "test_*.py"
 ```
 
+The richer pytest suite exercises the full offline workflow:
+
+```powershell
+python -m pytest -q
+```
+
+## Demo workflow
+
+- `/cases/new` ingests a fixture complaint reference and carries it forward as the active working case.
+- `/docket` shows the active case row, working-case trail, evidence manifest, and evidence bundle export.
+- `/traces`, `/cases/{id}/canvas`, `/findings/{id}`, and `/notices` follow the active case state.
+- `/integrations` reports fixture/live readiness without rendering secrets or API keys.
+
 ## Data and integrity
 
 - `docs/demo_case.json` is the only fixture source.
@@ -31,3 +44,6 @@ python -m unittest discover -s tests -p "test_*.py"
 - Amounts are integer base units in storage and are formatted only at the edge.
 - Trace snapshots use canonical JSON SHA-256 hashes.
 - Audit rows are append-only and hash chained.
+- Authenticated workflow forms use a session CSRF token.
+- Evidence bundle ZIPs are authenticated exports and include a manifest, case record, trace snapshot,
+  graph exhibit, custody finding, optional notice state, dispatch records, and prototype caveats.

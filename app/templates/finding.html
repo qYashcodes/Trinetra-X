@@ -84,6 +84,7 @@
           <p aria-live="polite" data-copy-hint>Select to copy. The address is quoted verbatim in the notice.</p>
         </section>
         <form id="finding-review-form" class="finding-review-form" method="post" action="/findings/{{ finding.id }}/checks">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <fieldset id="pre-notice-review">
             <legend>Pre-notice review</legend>
             {% for item in review_items %}

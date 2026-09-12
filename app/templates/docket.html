@@ -41,6 +41,29 @@
     </div>
   </section>
 
+  <section class="case-trail-panel" aria-label="Working case trail">
+    <header>
+      <div>
+        <span>Working case trail</span>
+        <strong class="mono">{{ case.ack_no }}</strong>
+      </div>
+      <nav aria-label="Evidence exports">
+        <a href="/api/cases/{{ case.id }}/evidence-manifest">Evidence manifest</a>
+        <a href="/api/cases/{{ case.id }}/evidence-bundle.zip">Evidence bundle</a>
+      </nav>
+    </header>
+    <ol>
+      {% for step in case_trail %}
+      <li class="{{ step.status }}">
+        <i aria-hidden="true"></i>
+        <span>{{ step.label }}</span>
+        <b class="mono">{{ step.detail }}</b>
+        <time class="mono">{% if step.ts_ms %}{{ step.ts_ms | ist }}{% else %}Pending{% endif %}</time>
+      </li>
+      {% endfor %}
+    </ol>
+  </section>
+
   <section class="docket-table-wrap" aria-label="Cases in this docket">
     <table class="docket-table">
       <colgroup>
@@ -59,11 +82,12 @@
       </thead>
       <tbody>
         {% for row in docket.rows %}
-        <tr data-docket-row>
+        <tr class="{{ 'is-active-case' if row.active else '' }}" data-docket-row data-active-case="{{ 'true' if row.active else 'false' }}">
           <td>
-            <a class="docket-ack mono" href="{{ '/cases/' ~ case.id ~ '/canvas?snapshot=' ~ snapshot.id if loop.first else '#' }}">
+            <a class="docket-ack mono" href="{{ '/cases/' ~ case.id ~ '/canvas?snapshot=' ~ snapshot.id if row.active else '#' }}">
               <i class="{{ row.status_tone }}" aria-hidden="true"></i><span>{{ row.ack_no }}</span>
             </a>
+            {% if row.active %}<span class="active-case-pill">Working case</span>{% endif %}
           </td>
           <td class="docket-amount mono">{{ row.amount_base|amount }}</td>
           <td class="docket-traced {{ row.traced_tone }}">{{ row.traced_to }}</td>
@@ -91,6 +115,6 @@
 {% block actionbar %}
 <div class="docket-actionbar">
   <p><i></i>Two cases need attention: one notice past its acknowledgement period and one trace stalled. Both appear under the Needs attention filter.</p>
-  <span class="mono">8 of 37 shown</span>
+  <span class="mono">{{ docket.rows|length }} of 37 shown</span>
 </div>
 {% endblock %}

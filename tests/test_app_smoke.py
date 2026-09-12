@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from io import BytesIO
+import re
+import zipfile
 
 import pytest
 from fastapi.testclient import TestClient
@@ -9,6 +12,12 @@ from sqlmodel import Session, SQLModel, create_engine
 
 import app.main as main_module
 from app.main import app
+
+
+def csrf_from(html: str) -> str:
+    match = re.search(r'name="csrf_token" value="([^"]+)"', html)
+    assert match
+    return match.group(1)
 
 
 @pytest.fixture(autouse=True)
@@ -63,7 +72,8 @@ def test_fixture_workflow_pages_render() -> None:
         assert 'data-particular-state="missing"' not in intake.text
         assert "Awaiting input" in intake.text
 
-        blank_ingest = client.post("/cases/ingest", data={"ack_no": "   "})
+        intake_token = csrf_from(intake.text)
+        blank_ingest = client.post("/cases/ingest", data={"ack_no": "   ", "csrf_token": intake_token})
         assert blank_ingest.status_code == 200
         assert blank_ingest.text.count('data-particular-state="pending"') == 8
         assert 'data-particular-state="missing"' not in blank_ingest.text
@@ -72,7 +82,7 @@ def test_fixture_workflow_pages_render() -> None:
 
         ingested = client.post(
             "/cases/ingest",
-            data={"ack_no": "NCRP/2026/MH/0084213"},
+            data={"ack_no": "NCRP/2026/MH/0084213", "csrf_token": intake_token},
         )
         assert ingested.status_code == 200
         assert "8 of 8 particulars" in ingested.text
@@ -82,7 +92,7 @@ def test_fixture_workflow_pages_render() -> None:
 
         incomplete = client.post(
             "/cases/ingest",
-            data={"ack_no": "NCRP/2026/MH/0091002"},
+            data={"ack_no": "NCRP/2026/MH/0091002", "csrf_token": intake_token},
         )
         assert incomplete.status_code == 200
         assert "6 of 8 particulars" in incomplete.text
@@ -98,9 +108,22 @@ def test_fixture_workflow_pages_render() -> None:
         assert "Value under trace" in docket.text
         assert "2.41" in docket.text
         assert "8 of 37 shown" in docket.text
+        assert "Working case trail" in docket.text
+        assert "Trace snapshot sealed" in docket.text
+        assert "Evidence manifest" in docket.text
+        assert "Evidence bundle" in docket.text
+        assert "Integration status" in docket.text
         assert "Switch to dark console" not in docket.text
         assert 'href="/notices"' in docket.text
         assert 'href="/notices/1"' not in docket.text
+
+        integrations = client.get("/integrations")
+        assert integrations.status_code == 200
+        assert "Integration readiness" in integrations.text
+        assert "Fixture mode is intentional" in integrations.text
+        assert "Secrets rendered" in integrations.text
+        assert "dev-only-change-me" not in integrations.text
+        assert "change-me-in-local-env" not in integrations.text
 
         trace = client.get("/traces/1")
         assert trace.status_code == 200
@@ -120,6 +143,7 @@ def test_fixture_workflow_pages_render() -> None:
         checks = client.post(
             "/findings/1/checks",
             data={
+                "csrf_token": csrf_from(client.get("/findings/1").text),
                 "review_check": [
                     "complaint_particulars_verified",
                     "deposit_attribution_confirmed",
@@ -131,12 +155,59 @@ def test_fixture_workflow_pages_render() -> None:
         )
         assert checks.status_code == 303
 
-        notice_redirect = client.post("/findings/1/notice", follow_redirects=False)
+        notice_redirect = client.post(
+            "/findings/1/notice",
+            data={"csrf_token": csrf_from(client.get("/findings/1").text)},
+            follow_redirects=False,
+        )
         assert notice_redirect.status_code == 303
 
         notice = client.get("/notices/1")
         assert notice.status_code == 200
         assert "Freeze and information preservation notice" in notice.text
+
+
+def test_ingested_reference_becomes_active_working_case() -> None:
+    with TestClient(app) as client:
+        client.post("/auth/prototype", data={"role": "io"})
+        intake_token = csrf_from(client.get("/cases/new").text)
+
+        ingested = client.post(
+            "/cases/ingest",
+            data={"ack_no": "NCRP/2026/MH/0091001", "csrf_token": intake_token},
+        )
+        assert ingested.status_code == 200
+        assert "8 of 8 particulars" in ingested.text
+        assert "Case loaded" in ingested.text
+
+        started = client.post(
+            "/cases/start",
+            data={"ack_no": "NCRP/2026/MH/0091001", "reviewed": "yes", "csrf_token": intake_token},
+            follow_redirects=False,
+        )
+        assert started.status_code == 303
+        trace_location = started.headers["location"]
+        assert re.fullmatch(r"/traces/\d+", trace_location)
+        snapshot_id = trace_location.rsplit("/", 1)[1]
+
+        trace = client.get("/traces")
+        assert trace.status_code == 200
+        assert "NCRP/2026/MH/0091001" in trace.text
+
+        docket = client.get("/docket")
+        assert docket.status_code == 200
+        assert "NCRP/2026/MH/0091001" in docket.text
+        assert "Working case" in docket.text
+        assert 'data-active-case="true"' in docket.text
+        canvas_match = re.search(r'href="/cases/(\d+)/canvas\?snapshot=' + snapshot_id + r'"', docket.text)
+        assert canvas_match
+        case_id = canvas_match.group(1)
+        assert re.search(r'href="/findings/\d+"', docket.text)
+        assert "9 of 37 shown" in docket.text
+
+        canvas = client.get(f"/cases/{case_id}/canvas")
+        assert canvas.status_code == 200
+        assert "NCRP/2026/MH/0091001" in canvas.text
 
 
 def test_api_contracts() -> None:
@@ -155,3 +226,52 @@ def test_api_contracts() -> None:
         graph = client.get("/api/cases/1/graph?view=case")
         assert graph.status_code == 200
         assert graph.json()["view"] == "case"
+
+        manifest = client.get("/api/cases/1/evidence-manifest")
+        assert manifest.status_code == 200
+        manifest_data = manifest.json()
+        assert manifest_data["schema"] == "trinetra.evidence_manifest/1"
+        assert manifest_data["case"]["ack_no"] == "NCRP/2026/MH/0084213"
+        assert manifest_data["snapshot"]["sha256"]
+        assert manifest_data["snapshot"]["graph_exhibit_sha256"]
+        assert manifest_data["finding"]["terminal_kind"] == "vasp_deposit"
+        assert manifest_data["audit"]["chain_verified"] is True
+
+        bundle = client.get("/api/cases/1/evidence-bundle.zip")
+        assert bundle.status_code == 200
+        assert bundle.headers["content-type"] == "application/zip"
+        with zipfile.ZipFile(BytesIO(bundle.content)) as archive:
+            names = set(archive.namelist())
+            assert {
+                "manifest.json",
+                "README.txt",
+                "case.json",
+                "trace_snapshot.json",
+                "graph_exhibit.svg",
+                "custody_finding.json",
+            }.issubset(names)
+            readme = archive.read("README.txt").decode("utf-8")
+            manifest_text = archive.read("manifest.json").decode("utf-8")
+        assert "No guilt assertion" in readme
+        assert "trinetra.evidence_manifest/1" in manifest_text
+
+        integration_status = client.get("/api/integrations/status")
+        assert integration_status.status_code == 200
+        status_data = integration_status.json()
+        assert status_data["schema"] == "trinetra.integration_status/1"
+        assert status_data["mode"] == "fixture"
+        assert status_data["secrets_rendered"] is False
+        assert "SESSION_SECRET" in status_data["secret_env_names"]
+
+
+def test_sensitive_exports_require_authenticated_session() -> None:
+    with TestClient(app) as client:
+        for path in (
+            "/integrations",
+            "/api/integrations/status",
+            "/api/cases/1/evidence-manifest",
+            "/api/cases/1/evidence-bundle.zip",
+        ):
+            response = client.get(path, follow_redirects=False)
+            assert response.status_code == 303
+            assert response.headers["location"] == "/login"

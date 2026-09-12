@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+import re
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,6 +13,12 @@ from app.main import app
 from app.services.demo import demo_case
 from app.services.money import format_amount
 from app.services.time import format_ist
+
+
+def csrf_from(html: str) -> str:
+    match = re.search(r'name="csrf_token" value="([^"]+)"', html)
+    assert match
+    return match.group(1)
 
 
 @pytest.fixture
@@ -68,7 +75,7 @@ def test_workflow_screens_render_canonical_case_evidence(workflow_client: TestCl
     review_keys = [item["key"] for item in data["finding_review_checks"]]
     prepared = workflow_client.post(
         "/findings/1/checks",
-        data={"review_check": review_keys, "action": "prepare"},
+        data={"review_check": review_keys, "action": "prepare", "csrf_token": csrf_from(finding)},
         follow_redirects=False,
     )
     assert prepared.status_code == 303

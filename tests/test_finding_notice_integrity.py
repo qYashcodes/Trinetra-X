@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+import re
 
 import pytest
 from fastapi.testclient import TestClient
@@ -11,6 +12,12 @@ import app.main as main_module
 from app.main import app
 from app.models import Case, CaseStage, Dispatch, Finding, Notice
 from app.repository import finding_review_specs, initial_finding_review_checks
+
+
+def csrf_from(html: str) -> str:
+    match = re.search(r'name="csrf_token" value="([^"]+)"', html)
+    assert match
+    return match.group(1)
 
 
 @pytest.fixture
@@ -86,7 +93,11 @@ def test_generic_notice_entry_preserves_review_gate_on_fresh_state(isolated_engi
         keys = [str(spec["key"]) for spec in finding_review_specs()]
         prepared = client.post(
             "/findings/1/checks",
-            data={"review_check": keys, "action": "prepare"},
+            data={
+                "review_check": keys,
+                "action": "prepare",
+                "csrf_token": csrf_from(gated_page.text),
+            },
             follow_redirects=False,
         )
         assert prepared.status_code == 303
@@ -127,7 +138,7 @@ def test_finding_review_contract_uses_explicit_persisted_keys(isolated_engine) -
         subset = keys[:1] + keys[2:3]
         saved = client.post(
             f"/findings/{finding_id}/checks",
-            data={"review_check": subset},
+            data={"review_check": subset, "csrf_token": csrf_from(page.text)},
             follow_redirects=False,
         )
         assert saved.status_code == 303
@@ -138,7 +149,10 @@ def test_finding_review_contract_uses_explicit_persisted_keys(isolated_engine) -
 
         invalid = client.post(
             f"/findings/{finding_id}/checks",
-            data={"review_check": [keys[0], "positional_check_0"]},
+            data={
+                "review_check": [keys[0], "positional_check_0"],
+                "csrf_token": csrf_from(client.get(f"/findings/{finding_id}").text),
+            },
         )
         assert invalid.status_code == 400
         with Session(isolated_engine) as session:
@@ -148,7 +162,11 @@ def test_finding_review_contract_uses_explicit_persisted_keys(isolated_engine) -
 
         prepared = client.post(
             f"/findings/{finding_id}/checks",
-            data={"review_check": keys, "action": "prepare"},
+            data={
+                "review_check": keys,
+                "action": "prepare",
+                "csrf_token": csrf_from(client.get(f"/findings/{finding_id}").text),
+            },
             follow_redirects=False,
         )
         assert prepared.status_code == 303
@@ -162,6 +180,17 @@ def test_finding_review_contract_uses_explicit_persisted_keys(isolated_engine) -
             assert notice.status == "draft"
 
 
+def test_workflow_forms_reject_missing_csrf_token(isolated_engine) -> None:
+    with TestClient(app) as client:
+        finding_id = login_and_seed(client)
+        denied = client.post(
+            f"/findings/{finding_id}/checks",
+            data={"review_check": [str(spec["key"]) for spec in finding_review_specs()]},
+        )
+        assert denied.status_code == 403
+        assert "Invalid or missing workflow token" in denied.text
+
+
 def test_notice_requires_distinct_persisted_countersignature_before_dispatch(
     isolated_engine,
 ) -> None:
@@ -171,7 +200,11 @@ def test_notice_requires_distinct_persisted_countersignature_before_dispatch(
         finding_id = login_and_seed(investigator)
         prepared = investigator.post(
             f"/findings/{finding_id}/checks",
-            data={"review_check": keys, "action": "prepare"},
+            data={
+                "review_check": keys,
+                "action": "prepare",
+                "csrf_token": csrf_from(investigator.get(f"/findings/{finding_id}").text),
+            },
             follow_redirects=False,
         )
         assert prepared.status_code == 303
@@ -189,12 +222,17 @@ def test_notice_requires_distinct_persisted_countersignature_before_dispatch(
 
         premature = investigator.post(
             f"/notices/{notice_id}/dispatch",
-            data={"channel": ["portal", "email"], "deadline_hours": "24"},
+            data={
+                "channel": ["portal", "email"],
+                "deadline_hours": "24",
+                "csrf_token": csrf_from(draft.text),
+            },
         )
         assert premature.status_code == 409
 
         requested = investigator.post(
             f"/notices/{notice_id}/countersign-request",
+            data={"csrf_token": csrf_from(draft.text)},
             follow_redirects=False,
         )
         assert requested.status_code == 303
@@ -212,7 +250,10 @@ def test_notice_requires_distinct_persisted_countersignature_before_dispatch(
         assert 'data-countersigned="false"' in awaiting.text
         assert "data-request-sign" not in awaiting.text
 
-        self_sign = investigator.post(f"/notices/{notice_id}/countersign")
+        self_sign = investigator.post(
+            f"/notices/{notice_id}/countersign",
+            data={"csrf_token": csrf_from(awaiting.text)},
+        )
         assert self_sign.status_code == 403
 
         login_and_seed(supervisor, "supervisor")
@@ -220,6 +261,7 @@ def test_notice_requires_distinct_persisted_countersignature_before_dispatch(
         assert "data-countersign" in supervisor_view.text
         signed = supervisor.post(
             f"/notices/{notice_id}/countersign",
+            data={"csrf_token": csrf_from(supervisor_view.text)},
             follow_redirects=False,
         )
         assert signed.status_code == 303
@@ -235,7 +277,11 @@ def test_notice_requires_distinct_persisted_countersignature_before_dispatch(
 
         cannot_dispatch_as_supervisor = supervisor.post(
             f"/notices/{notice_id}/dispatch",
-            data={"channel": ["portal", "email"], "deadline_hours": "72"},
+            data={
+                "channel": ["portal", "email"],
+                "deadline_hours": "72",
+                "csrf_token": csrf_from(supervisor.get(f"/notices/{notice_id}").text),
+            },
         )
         assert cannot_dispatch_as_supervisor.status_code == 403
 
@@ -246,7 +292,11 @@ def test_notice_requires_distinct_persisted_countersignature_before_dispatch(
 
         dispatched = investigator.post(
             f"/notices/{notice_id}/dispatch",
-            data={"channel": ["portal", "email", "nodal-copy"], "deadline_hours": "72"},
+            data={
+                "channel": ["portal", "email", "nodal-copy"],
+                "deadline_hours": "72",
+                "csrf_token": csrf_from(signed_view.text),
+            },
             follow_redirects=False,
         )
         assert dispatched.status_code == 303
@@ -272,7 +322,11 @@ def test_notice_requires_distinct_persisted_countersignature_before_dispatch(
 
         repeated = investigator.post(
             f"/notices/{notice_id}/dispatch",
-            data={"channel": "portal", "deadline_hours": "24"},
+            data={
+                "channel": "portal",
+                "deadline_hours": "24",
+                "csrf_token": csrf_from(investigator.get(f"/notices/{notice_id}").text),
+            },
         )
         assert repeated.status_code == 409
         with Session(isolated_engine) as session:

@@ -35,24 +35,30 @@ def ensure_finding_review_checks(session: Session, finding: Finding) -> Finding:
 
 def seed_demo(session: Session) -> Case:
     data = demo_case()
-    existing = session.exec(select(Case).where(Case.ack_no == data["case"]["ack_no"])).first()
+    return case_from_complaint(session, data["case"])
+
+
+def case_from_complaint(session: Session, record: dict) -> Case:
+    existing = session.exec(select(Case).where(Case.ack_no == record["ack_no"])).first()
     if existing:
         return existing
     ts = now_ms()
+    asset = record["asset"]
+    chain = record["chain"]
     case = Case(
-        ack_no=data["case"]["ack_no"],
-        category=data["case"]["category"],
-        jurisdiction=data["case"]["jurisdiction"],
-        filed_ts_ms=data["case"]["filed_ts_ms"],
-        amount_reported_base=data["case"]["amount_reported_base"],
-        asset_symbol=data["case"]["asset"]["symbol"],
-        asset_decimals=data["case"]["asset"]["decimals"],
-        chain_family=data["case"]["chain"]["family"],
-        chain_network=data["case"]["chain"]["network"],
-        reported_address=data["case"]["reported_address"],
-        payment_txid=data["case"]["payment_txid"],
-        payment_ts_ms=data["case"]["victim_payment_ts_ms"],
-        complainant_contact_redacted=data["case"]["complainant_contact_redacted"],
+        ack_no=record["ack_no"],
+        category=record["category"],
+        jurisdiction=record["jurisdiction"],
+        filed_ts_ms=record["filed_ts_ms"],
+        amount_reported_base=record["amount_reported_base"],
+        asset_symbol=asset["symbol"],
+        asset_decimals=asset["decimals"],
+        chain_family=chain["family"],
+        chain_network=chain["network"],
+        reported_address=record["reported_address"],
+        payment_txid=record.get("payment_txid"),
+        payment_ts_ms=record.get("victim_payment_ts_ms"),
+        complainant_contact_redacted=record.get("complainant_contact_redacted"),
         created_ts_ms=ts,
         updated_ts_ms=ts,
     )
