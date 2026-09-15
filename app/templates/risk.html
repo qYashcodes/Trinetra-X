@@ -30,6 +30,12 @@
           <p>Paste a recipient address to see whether it appears in this desk's dockets, in the shared attribution set, or on an advisory list. The check reads records only. Nothing is reported to the address holder.</p>
 
           <form id="risk-check-form" method="post" action="/risk-check" novalidate>
+            <fieldset class="risk-mode-control">
+              <legend>Data source</legend>
+              <label><input type="radio" name="mode" value="fixture"{{ ' checked' if risk_mode == 'fixture' else '' }}><span>Controlled fixture</span></label>
+              <label class="live"><input type="radio" name="mode" value="live"{{ ' checked' if risk_mode == 'live' else '' }}{{ ' disabled' if not live_risk_flag.enabled else '' }}><span>Live TRON history</span></label>
+              <small class="{{ 'ready' if live_risk_flag.enabled else 'blocked' }}">{{ 'Provider gate verified' if live_risk_flag.enabled else 'Live provider gates incomplete' }}</small>
+            </fieldset>
             <div class="risk-input-row">
               <label class="sr-only" for="risk-address">Recipient address</label>
               <input id="risk-address" class="{{ 'is-error' if risk_error else '' }}" name="address" type="text" value="{{ address }}" placeholder="Paste a TRON, Ethereum or Bitcoin address" autocomplete="off" spellcheck="false" aria-describedby="risk-hint">
@@ -47,6 +53,7 @@
         </section>
 
         {% if result %}
+        <div class="risk-mode-banner {{ result.mode }}" role="status"><strong>{{ 'LIVE PROVIDER LOOKUP' if result.mode == 'live' else 'CONTROLLED FIXTURE LOOKUP' }}</strong><span>{{ 'Confirmed provider history and retained request receipts are used where available.' if result.mode == 'live' else 'Results are deterministic demonstration data and are not live blockchain findings.' }}</span></div>
         <section class="risk-result-card {{ result.band }}" aria-label="{{ result.headline }}">
           <div class="risk-result-head">
             <div class="risk-verdict">
@@ -54,10 +61,17 @@
               <h2>{{ result.verdict_line }}</h2>
               <span class="risk-address-value">{{ result.address }}</span>
             </div>
-            <div class="risk-score"><strong>{{ result.score }}</strong><span>risk score of 100</span></div>
+            <div class="risk-score"><strong>{{ result.evidence_band_value }}</strong><span>{{ result.evidence_band_caption }}</span></div>
           </div>
 
           <p class="risk-verdict-note">{{ result.verdict_note }}</p>
+
+          <dl class="risk-method-state">
+            <div><dt>Calibration status</dt><dd>{{ result.calibration_status | replace('_', ' ') }}</dd></div>
+            <div><dt>Output model</dt><dd>Evidence bands only</dd></div>
+            <div><dt>Rule revision</dt><dd>{{ result.methodology.rule_revision }}</dd></div>
+            <div><dt>Feature revision</dt><dd>{{ result.methodology.feature_revision }}</dd></div>
+          </dl>
 
           <div class="risk-facts">
             {% for fact in result.facts %}
@@ -75,11 +89,60 @@
             </div>
             {% endfor %}
           </section>
+
+          {% if result.features %}
+          <section class="risk-features" aria-labelledby="risk-features-title">
+            <header><div><h3 id="risk-features-title">Raw behavioural features</h3><p>Integer values computed from the confirmed events named in each row.</p></div><span>{{ result.feature_set.observed_event_count }} events</span></header>
+            <div class="risk-feature-list">
+              {% for feature in result.features %}
+              <article>
+                <header><h4>{{ feature.label }}</h4><code>{{ feature.key }}</code></header>
+                <p>{{ feature.method }}</p>
+                <dl>
+                  {% for key, value in feature['values'].items() %}
+                  <div><dt>{{ key | replace('_', ' ') }}</dt><dd><code>{{ 'not observed' if value is none else value }}</code>{% if value is not none and key.endswith('_ts_ms') %}<small>{{ value | ist }}</small>{% endif %}</dd></div>
+                  {% endfor %}
+                </dl>
+                <div class="risk-evidence-refs"><strong>Evidence references</strong>{% if feature.evidence_refs %}{% for evidence_ref in feature.evidence_refs %}<code>{{ evidence_ref }}</code>{% endfor %}{% else %}<span>None available for this feature.</span>{% endif %}</div>
+              </article>
+              {% endfor %}
+            </div>
+          </section>
+          {% endif %}
+
+          <section class="risk-sources" aria-labelledby="risk-sources-title">
+            <header><div><h3 id="risk-sources-title">Attribution and evidence sources</h3><p>Every source is reported separately with retrieval and provenance.</p></div></header>
+            <div class="risk-source-list">
+              {% for source in result.attribution_evidence %}
+              <article class="{{ 'local-match' if source.source == 'TRINETRA local case records' and source.status == 'matched' else '' }}">
+                <div><strong>{{ source.source }}</strong><span>{{ source.status | replace('_', ' ') }}</span></div>
+                <p>{{ source.provenance }}</p>
+                <small>{{ source.retrieval_ts_ms | ist if source.retrieval_ts_ms else 'No retrieval timestamp available' }}</small>
+                {% if source.references %}<div class="risk-source-refs">{% for reference in source.references %}<code>{{ reference }}</code>{% endfor %}</div>{% endif %}
+                {% if source.evidence_refs %}<div class="risk-source-refs">{% for evidence_ref in source.evidence_refs %}<code>{{ evidence_ref }}</code>{% endfor %}</div>{% endif %}
+              </article>
+              {% endfor %}
+            </div>
+          </section>
+
+          <section class="risk-methodology">
+            <h3>Method boundary</h3>
+            <p>{{ result.methodology.caveat }}</p>
+            <dl><div><dt>Minimum activity</dt><dd>{{ result.methodology.minimum_activity_events }} observed transfers</dd></div><div><dt>Burner classification</dt><dd>{{ result.methodology.burner_classification.status | title }}: {{ result.methodology.burner_classification.reason }}</dd></div></dl>
+          </section>
+
+          <form class="risk-escalate" method="post" action="/risk-check/escalate">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="address" value="{{ result.address }}">
+            <input type="hidden" name="mode" value="{{ result.mode }}">
+            <span><strong>Throwaway lookup</strong><small>No case has been created by this check.</small></span>
+            <button type="submit">Prepare as live case</button>
+          </form>
         </section>
         {% else %}
         <section class="risk-empty-card">
           <h2>No address checked yet</h2>
-          <p>The result appears here with the score, the signals behind it, and any<br>docket that already names the address.</p>
+          <p>The result appears here with the evidence band, the signals behind it, and any<br>docket that already names the address.</p>
         </section>
         {% endif %}
       </div>
@@ -106,13 +169,15 @@
           <div>
             {% for recent in risk_recent %}
             <button type="button" data-risk-address="{{ recent.address }}"><span><i class="{{ recent.tone }}" aria-hidden="true"></i><strong>{{ recent.label }}</strong></span><time>{{ recent.time }}</time></button>
+            {% else %}
+            <p class="risk-recent-empty">No checks recorded in the current audit log.</p>
             {% endfor %}
           </div>
         </section>
 
         <section class="risk-use-card">
           <h2>How this result may be used</h2>
-          <p>A risk score is an investigative aid. It is not evidence of an offence and must not be quoted in a notice or a report without a completed trace behind it.</p>
+          <p>This record-based band is an investigative aid, not a calibrated probability or evidence of an offence. Do not quote it in a notice or report without a completed trace behind it.</p>
         </section>
       </aside>
     </main>

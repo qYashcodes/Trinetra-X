@@ -392,7 +392,11 @@
   align-self: end;
   justify-self: center;
   margin-bottom: 9px;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: #5c6880;
+  font-family: inherit;
   font-size: 10.5px;
   font-weight: 500;
   line-height: 1.25;

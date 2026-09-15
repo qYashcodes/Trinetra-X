@@ -3,12 +3,29 @@ from __future__ import annotations
 import unittest
 from decimal import Decimal
 
-from app.engine_bridge import ChainRef, TraceParams, TraceSeed, detect_chain, explorer_url, run_trace
+from app.engine_bridge import (
+    ChainRef,
+    TraceParams,
+    TraceSeed,
+    detect_chain,
+    explorer_url,
+    run_trace,
+)
 from app.services.audit import append_audit_event, verify_audit_chain
 from app.services.demo import demo_case
 from app.services.hash import sha256_json
 from app.services.money import basis_points, format_amount, format_millions
 from app.services.risk import risk_check
+from engine.adapters.btc import (
+    BtcAdapterUnavailableError,
+    adapter_status as btc_adapter_status,
+    fetch_history,
+)
+from engine.adapters.evm import (
+    EvmAdapterUnavailableError,
+    adapter_status as evm_adapter_status,
+    fetch_token_transfers,
+)
 
 
 class CoreContractTests(unittest.TestCase):
@@ -52,6 +69,7 @@ class CoreContractTests(unittest.TestCase):
     def test_risk_bands_and_no_clearance_language(self) -> None:
         alert = risk_check("TGh3c9PkL8Qn7MuYbxV1aZP2R6EeSsQ7hC")
         clean = risk_check("RC_clean")
+        unknown = risk_check("TNq7CqVEANFoJjvekpNLtTYuTnTtA6x7Ti")
         self.assertEqual(alert["band"], "alert")
         self.assertEqual(clean["band"], "low")
         self.assertIn(
@@ -60,10 +78,33 @@ class CoreContractTests(unittest.TestCase):
         )
         self.assertNotIn("active restraint", alert["verdict_line"].lower())
         self.assertIn("Absence of a record is not clearance.", clean["signals"])
+        self.assertIsNone(alert["score"])
+        self.assertIsNone(clean["score"])
+        self.assertFalse(alert["probability_enabled"])
+        self.assertFalse(clean["probability_enabled"])
+        self.assertEqual(alert["score_kind"], "fixture_evidence_band")
+        self.assertEqual(clean["score_kind"], "fixture_evidence_band")
+        self.assertEqual(alert["posterior"], None)
+        self.assertNotIn("Classifier", " ".join(alert["signals"]))
+        self.assertNotIn("score", unknown["verdict_note"].lower())
 
     def test_explorer_urls_are_chain_specific(self) -> None:
         self.assertIn("tronscan.org", explorer_url("tx", "abc", ChainRef("TRON", "mainnet")))
-        self.assertIn("blockstream.info", explorer_url("address", "bc1abc", ChainRef("BTC", "mainnet")))
+        self.assertIn(
+            "blockstream.info",
+            explorer_url("address", "bc1abc", ChainRef("BTC", "mainnet")),
+        )
+
+    def test_evm_and_btc_adapters_are_explicitly_unavailable(self) -> None:
+        self.assertFalse(evm_adapter_status()["enabled"])
+        self.assertFalse(btc_adapter_status()["enabled"])
+        with self.assertRaises(EvmAdapterUnavailableError):
+            fetch_token_transfers(
+                "0x0000000000000000000000000000000000000000",
+                ChainRef("EVM", "ethereum", 1),
+            )
+        with self.assertRaises(BtcAdapterUnavailableError):
+            fetch_history("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080")
 
     def test_audit_chain_verifies(self) -> None:
         append_audit_event("test", "unit", "core")

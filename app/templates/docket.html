@@ -14,6 +14,7 @@
 
 {% block content %}
 <section class="docket-screen">
+  {% include "_trace_mode_banner.html" %}
   <section class="docket-metrics" aria-label="Docket summary">
     {% for metric in docket.kpis %}
     <article class="docket-metric {{ metric.tone }}">
@@ -23,6 +24,10 @@
     </article>
     {% endfor %}
   </section>
+
+  {% if snapshot_history | length > 1 %}
+  <section class="snapshot-history" aria-label="Retained trace history"><header><h2>Retained trace history</h2><span>{{ snapshot_history | length }} snapshots</span></header><ol>{% for item in snapshot_history %}<li class="{{ 'current' if loop.first else 'superseded' }}"><a class="mono" href="/traces/{{ item.id }}">Snapshot {{ item.id }}</a><span>{{ item.result_json.get('engine', {}).get('mode', 'fixture') | upper }}</span><time class="mono">{{ item.closed_ts_ms | ist }}</time><small>{{ 'Current result' if loop.first else 'Superseded, retained' }}</small></li>{% endfor %}</ol>{% for event in retrace_audit %}<p class="snapshot-audit">Re-trace by <b class="mono">{{ event.actor }}</b> at {{ event.ts_ms | ist }}; {{ event.data.get('prior_export_count', 0) }} earlier export action(s) remain immutable.</p>{% endfor %}</section>
+  {% endif %}
 
   <section class="docket-controls" aria-label="Case filters">
     <div class="docket-filter-row">

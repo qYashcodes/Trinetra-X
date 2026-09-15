@@ -4,6 +4,7 @@
 
   const cadenceMs = 1600;
   const hopShares = root.dataset.hopShares.split('|');
+  const hasFinding = Boolean(root.dataset.findingId);
   const states = [
     {
       progress: 0,
@@ -32,7 +33,7 @@
     {
       progress: 80,
       run: 'Tracing — hop 5 of 5',
-      work: 'confirming deposit-address ownership at hop 5',
+      work: hasFinding ? 'confirming deposit-address ownership at hop 5' : 'closing trace boundary',
       addresses: '31', transfers: '115', retained: hopShares[3], branches: '8',
     },
     {
@@ -72,6 +73,37 @@
     cluster: root.querySelector('[data-candidate="cluster"]'),
     self: root.querySelector('[data-candidate="self"]'),
   };
+
+  if (root.dataset.terminalOnly === 'true') {
+    root.dataset.step = '0';
+    root.dataset.state = 'complete';
+    root.style.setProperty('--trace-progress', '100%');
+    els.runState.querySelector('span').textContent = 'Trace closed';
+    els.workHeading.textContent = 'Trace closed';
+    els.heading.textContent = root.dataset.terminalKind?.replaceAll('_', ' ') || 'Trace closed';
+    els.subheading.textContent = root.dataset.terminalNote || 'No custody finding was created for this seed.';
+    els.progress.textContent = '100%';
+    els.track.setAttribute('aria-valuenow', '100');
+    els.workLine.textContent = '';
+    els.workRow.hidden = true;
+    els.addresses.textContent = '0';
+    els.transfers.textContent = '0';
+    els.retained.textContent = '0%';
+    els.branches.textContent = '0';
+    rows.forEach((row) => { row.hidden = false; row.classList.remove('is-active'); });
+    Object.values(candidates).forEach((candidate) => {
+      if (candidate) candidate.hidden = true;
+    });
+    els.candidateMode.textContent = 'none';
+    els.outcome.textContent = root.dataset.terminalNote || 'Trace closed without custody evidence.';
+    els.pause.disabled = true;
+    els.pause.textContent = 'Closed';
+    if (els.findingAction?.matches('a')) {
+      els.findingAction.setAttribute('aria-disabled', 'true');
+      els.findingAction.tabIndex = -1;
+    }
+    return;
+  }
 
   let startedAt = performance.now();
   let pausedAt = null;
@@ -115,7 +147,9 @@
     els.workHeading.textContent = state.run;
     els.heading.textContent = complete ? 'Traversal closed at hop 4' : 'Following the funds';
     els.subheading.textContent = complete
-      ? 'The largest surviving share reached an address held by a registered exchange.'
+      ? (hasFinding
+        ? 'The largest surviving share reached an address held by a registered exchange.'
+        : (root.dataset.terminalNote || 'Trace closed without custody evidence.'))
       : 'Each hop is written to the case record as it resolves. The graph builds in parallel.';
     els.progress.textContent = `${state.progress}%`;
     els.track.setAttribute('aria-valuenow', String(state.progress));
@@ -132,15 +166,17 @@
       reveal(row, rowStep <= step, animate);
       row.classList.toggle('is-active', !complete && rowStep === step);
     });
-    reveal(candidates.cluster, step >= 3, animate);
-    reveal(candidates.self, step >= 4, animate);
-    reveal(candidates.coinsphere, complete, animate);
-    els.candidateMode.textContent = complete ? 'ranked' : 'provisional';
+    reveal(candidates.cluster, hasFinding && step >= 3, animate);
+    reveal(candidates.self, hasFinding && step >= 4, animate);
+    reveal(candidates.coinsphere, hasFinding && complete, animate);
+    els.candidateMode.textContent = hasFinding ? (complete ? 'ranked' : 'provisional') : 'none';
 
     els.advisory.classList.toggle('amber', !complete);
     els.advisory.classList.toggle('green', complete);
     els.outcome.textContent = complete
-      ? `${root.dataset.terminalAmount} of the reported amount sits at a deposit address attributed to ${root.dataset.custodianName}. A freeze notice can be raised from the finding.`
+      ? (hasFinding
+        ? `${root.dataset.terminalAmount} of the reported amount sits at a deposit address attributed to ${root.dataset.custodianName}. A freeze notice can be raised from the finding.`
+        : (root.dataset.terminalNote || 'Trace closed without custody evidence.'))
       : 'Findings are provisional until the traversal closes. Nothing is dispatched from this screen.';
 
     if (els.findingAction?.matches('a')) {

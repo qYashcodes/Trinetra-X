@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Investigator canvas · TRINETRA{% endblock %}
 {% block body_class %}canvas-page{% endblock %}
-{% block page_styles %}<link rel="stylesheet" href="/static/workspace-shell.css"><link rel="stylesheet" href="/static/canvas.css">{% endblock %}
-{% block page_scripts %}<script defer src="/static/canvas.js"></script>{% endblock %}
+{% block page_styles %}<link rel="stylesheet" href="/static/workspace-shell.css"><link rel="stylesheet" href="/static/canvas.css"><link rel="stylesheet" href="/static/explainability.css">{% endblock %}
+{% block page_scripts %}<script defer src="/static/canvas.js"></script><script defer src="/static/explainability.js"></script>{% endblock %}
 
 {% block authenticated %}
 {% set trace_hops = demo.dominant_path %}
@@ -14,6 +14,7 @@
      data-deposit-address="{{ deposit_address }}"
      data-hot-wallet-address="{{ hot_wallet_address }}">
   <script type="application/json" data-canvas-evidence>{{ demo | tojson }}</script>
+  {% include "_trace_mode_banner.html" %}
   <div class="canvas-body">
     {% set active_page = "canvas" %}
     {% include "_workspace_nav.html" %}
@@ -27,7 +28,7 @@
           </div>
           <p>Reported / at rest:&nbsp; <strong>{{ demo.case.amount_reported_base | amount_number }} / {{ demo.terminal.amount_credited_base | amount_number }} {{ demo.case.asset.symbol }}</strong>&nbsp; <strong>({{ demo.terminal.retained_share_bp | pctbp }} retained)</strong></p>
         </div>
-        <div class="canvas-stats" aria-label="Trace facts">
+        <div class="canvas-stats" aria-label="Trace facts" data-explain-target="methodology" role="button" tabindex="0">
           <div class="canvas-stat"><span>Chain</span><strong><i class="token token-tron">T</i>{{ demo.case.chain.family }}</strong></div>
           <div class="canvas-stat"><span>Asset</span><strong><i class="token token-usdt">T</i>{{ demo.case.asset.symbol }}</strong></div>
           <div class="canvas-stat"><span>Total hops</span><strong>{{ trace_hops | length }}</strong></div>
@@ -38,7 +39,7 @@
 
       <section class="canvas-strategy" aria-label="Trace strategy">
         <strong class="canvas-strategy-title">Trace strategy</strong>
-        <button class="strategy-select" type="button" aria-label="Trace strategy: Dominant fund flow">
+        <button class="strategy-select" type="button" aria-label="Explain trace strategy: Dominant fund flow" data-explain-target="methodology">
           <span aria-hidden="true">⇄</span><span>Dominant fund flow</span><small aria-hidden="true">▾</small>
         </button>
         <span class="strategy-fact"><small>Value threshold</small><b>≥ 2%</b></span>
@@ -70,7 +71,7 @@
                     {% set column = 1 + ((loop.index0) * 2) %}
                     <span class="flow-hop" style="grid-column:{{ column }};grid-row:1">H{{ node.hop }}</span>
                     <button class="flow-node flow-node-{{ node_tones[loop.index0] }}" style="grid-column:{{ column }};grid-row:2" type="button"
-                            data-node-id="h{{ node.hop }}" aria-pressed="false"
+                            data-node-id="h{{ node.hop }}" data-explain-target="hop:{{ loop.index0 }}" aria-pressed="false"
                             aria-label="H{{ node.hop }}, {{ node_labels[loop.index0] }}, {{ 'exchange deposit address' if loop.last else 'blockchain address' }}: {{ node.address }}">
                       <i><span></span></i>
                     </button>
@@ -79,24 +80,24 @@
                       <small class="mono">{{ node.address[:4] }}...{{ node.address[-6:] if loop.last else node.address[-4:] }}</small>
                       <b class="amount-dependent">{{ node.value_base | amount }}</b>
                     </span>
-                    <span class="flow-edge-value amount-dependent" style="grid-column:{{ column + 1 }};grid-row:1">{{ 'Attributed to' if loop.last else node.value_base | amount }}</span>
+                    <button class="flow-edge-value amount-dependent" style="grid-column:{{ column + 1 }};grid-row:1" type="button" data-explain-target="hop:{{ loop.index0 }}">{{ 'Attributed to' if loop.last else node.value_base | amount }}</button>
                     <span class="flow-edge {{ 'attribution' if loop.last else '' }}" style="grid-column:{{ column + 1 }};grid-row:2"><i></i><b></b></span>
                     {% endfor %}
                     <span class="flow-hop" style="grid-column:11;grid-row:1">H5</span>
-                    <button class="flow-node flow-node-verified" style="grid-column:11;grid-row:2" type="button" data-node-id="ex" aria-pressed="true" aria-label="H5, Coinsphere, custodian hot-wallet address: {{ hot_wallet_address }}"><i><span></span></i></button>
+                    <button class="flow-node flow-node-verified" style="grid-column:11;grid-row:2" type="button" data-node-id="ex" data-explain-target="terminal" aria-pressed="true" aria-label="H5, Coinsphere, custodian hot-wallet address: {{ hot_wallet_address }}"><i><span></span></i></button>
                     <span class="flow-node-copy" style="grid-column:11;grid-row:3"><strong>Coinsphere</strong><small class="mono">VASP</small></span>
 
                     <span class="parked-visual" style="grid-column:5;grid-row:4" aria-hidden="true">
                       <i></i><b></b><em><small></small></em>
                     </span>
-                    <span class="parked-summary" style="grid-column:6 / span 2;grid-row:4">
+                    <span class="parked-summary" style="grid-column:6 / span 2;grid-row:4" data-explain-target="parked:0" role="button" tabindex="0">
                       <strong>+{{ demo.parked | length }} parked branches</strong><span>{{ parked_value_base | amount }}</span><small>{{ parked_share_bp | pctbp }}</small>
                     </span>
                     <span class="parked-control" style="grid-column:5 / span 3;grid-row:5">
                       <button type="button" data-parked-expand aria-expanded="false" aria-label="Expand 2 parked branches">▼</button>
                     </span>
                     <span class="parked-list" style="grid-column:3 / span 5;grid-row:6" data-parked-list>
-                      {% for branch in demo.parked %}<span><strong>Parked branch {{ branch.branch_id }}</strong><small class="mono" title="{{ branch.address }}">{{ branch.address[:6] }}...{{ branch.address[-4:] }}</small><b>{{ branch.value_base | amount }} · {{ branch.share_bp | pctbp }}</b></span>{% endfor %}
+                      {% for branch in demo.parked %}<span data-explain-target="parked:{{ loop.index0 }}" role="button" tabindex="0"><strong>Parked branch {{ branch.branch_id }}</strong><small class="mono" title="{{ branch.address }}">{{ branch.address[:6] }}...{{ branch.address[-4:] }}</small><b>{{ branch.value_base | amount }} · {{ branch.share_bp | pctbp }}</b></span>{% endfor %}
                     </span>
                   </div>
 
@@ -135,20 +136,20 @@
               {% set timeline_labels = ['Victim payment', 'Pass-through', 'Peel chain', 'Consolidation', 'Exchange deposit'] %}
               {% for item in trace_hops %}
                 {% if not loop.first %}<i class="timeline-arrow {{ 'warn' if loop.index0 == 3 else '' }}" aria-hidden="true">▶</i>{% endif %}
-                <button class="timeline-item" type="button" data-node-id="h{{ item.hop }}" aria-pressed="false">
+                <button class="timeline-item" type="button" data-node-id="h{{ item.hop }}" data-explain-target="hop:{{ loop.index0 }}" aria-pressed="false">
                   <span><b>H{{ item.hop }}</b><strong>{{ timeline_labels[loop.index0] }}</strong></span>
                   <em>{{ item.value_base | amount }}</em>
                   <small><i>{{ (item.ts_ms | ist)[11:16] }}</i><b class="{{ 'neutral' if loop.first else '' }}">{% if not loop.first %}−{{ ((trace_hops[loop.index0 - 1].share_bp - item.share_bp) / 100) }}%{% endif %}</b></small>
                 </button>
               {% endfor %}
               <i class="timeline-arrow" aria-hidden="true">▶</i>
-              <button class="timeline-item vasp" type="button" data-node-id="ex" aria-pressed="true"><span><b>VASP</b><strong>VASP attribution</strong></span><em>Coinsphere</em><small><i>{{ (demo.hot_wallet.ts_ms | ist)[11:16] }}</i><b class="positive">94% confidence</b></small></button>
+              <button class="timeline-item vasp" type="button" data-node-id="ex" data-explain-target="terminal" aria-pressed="true"><span><b>VASP</b><strong>VASP attribution</strong></span><em>Coinsphere</em><small><i>{{ (demo.hot_wallet.ts_ms | ist)[11:16] }}</i><b class="positive">High evidence band</b></small></button>
             </div>
             <div class="canvas-bottom-panel compact-bottom-panel" data-bottom-panel="summary" hidden>
-              <span><small>Reported</small><strong>{{ demo.case.amount_reported_base | amount }}</strong></span>
-              <span><small>At rest</small><strong>{{ demo.terminal.amount_credited_base | amount }}</strong></span>
-              <span><small>Parked</small><strong>{{ parked_value_base | amount }}</strong></span>
-              <span><small>Retained</small><strong>{{ demo.terminal.retained_share_bp | pctbp }}</strong></span>
+              <span data-explain-target="seed" role="button" tabindex="0"><small>Reported</small><strong>{{ demo.case.amount_reported_base | amount }}</strong></span>
+              <span data-explain-target="terminal" role="button" tabindex="0"><small>At rest</small><strong>{{ demo.terminal.amount_credited_base | amount }}</strong></span>
+              <span data-explain-target="methodology" role="button" tabindex="0"><small>Parked</small><strong>{{ parked_value_base | amount }}</strong></span>
+              <span data-explain-target="terminal" role="button" tabindex="0"><small>Retained</small><strong>{{ demo.terminal.retained_share_bp | pctbp }}</strong></span>
             </div>
             <div class="canvas-bottom-panel compact-bottom-panel" data-bottom-panel="insights" hidden>
               <p><i></i>Largest surviving share reaches a verified VASP in five hops.</p>
@@ -184,6 +185,7 @@
         </aside>
       </div>
       <span class="canvas-bottom-space" aria-hidden="true"></span>
+      {% include "_trace_explainability.html" %}
     </main>
   </div>
 

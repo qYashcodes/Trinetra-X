@@ -11,7 +11,7 @@
   <script defer src="/static/app.js"></script>
   {% block page_scripts %}{% endblock %}
 </head>
-<body class="{% block body_class %}{% endblock %}">
+<body class="{% block body_class %}{% endblock %} {{ 'authenticated-session' if user else 'public-session' }}">
 {% if user %}
 {% block authenticated %}
 {% set path = request.url.path %}
@@ -45,6 +45,7 @@
     <nav aria-label="Primary">
       <div class="nav-group">Cases</div>
       <a class="nav-item {{ 'active' if path == '/cases/new' else '' }}" href="/cases/new"><span>New case</span><b>4</b></a>
+      <a class="nav-item {{ 'active' if path == '/cases/live/new' else '' }}" href="/cases/live/new"><span>Live trace</span></a>
       <a class="nav-item {{ 'active' if path == '/docket' else '' }}" href="/docket"><span>Case docket</span><b>37</b></a>
       <div class="nav-group">Investigations</div>
       <a class="nav-item {{ 'active' if path.startswith('/traces') else '' }}" href="/traces"><span>Active traces</span><b>2</b></a>
@@ -55,6 +56,7 @@
       <div class="nav-group">Tools</div>
       <a class="nav-item {{ 'active' if path.startswith('/risk-check') else '' }}" href="/risk-check"><span>Risk check</span></a>
       <a class="nav-item {{ 'active' if path.startswith('/integrations') else '' }}" href="/integrations"><span>Integration status</span></a>
+      <a class="nav-item {{ 'active' if path.startswith('/sessions') else '' }}" href="/sessions"><span>Active sessions</span></a>
     </nav>
     <div class="nav-footer">
       <strong>{{ user.name }}</strong>
@@ -77,6 +79,7 @@
   </footer>
 </div>
 {% endblock %}
+{% include "_session_controls.html" %}
 {% else %}
   {% block public %}{% endblock %}
 {% endif %}

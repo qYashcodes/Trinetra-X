@@ -3,6 +3,10 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from app.services.capabilities import capability_matrix
+from app.services.feature_flags import feature_flags
+from app.services.worker import frontier_worker_status
+from app.services.provider_budget import provider_budget_status
 from app.settings import settings
 
 
@@ -34,20 +38,25 @@ def _status(configured: bool, *, enabled: bool = True, requires_approval: bool =
 
 
 def integration_status() -> dict[str, Any]:
+    flags = feature_flags()
+    worker = frontier_worker_status()
+    provider_budget = provider_budget_status()
     cctns_oidc_ready = all(
         _configured(name)
         for name in ("OIDC_CCTNS_ISSUER", "OIDC_CCTNS_CLIENT_ID", "OIDC_CCTNS_CLIENT_SECRET")
     )
     parichay_oidc_ready = all(
         _configured(name)
-        for name in ("OIDC_PARICHAY_ISSUER", "OIDC_PARICHAY_CLIENT_ID", "OIDC_PARICHAY_CLIENT_SECRET")
+        for name in (
+            "OIDC_PARICHAY_ISSUER",
+            "OIDC_PARICHAY_CLIENT_ID",
+            "OIDC_PARICHAY_CLIENT_SECRET",
+        )
     )
     dispatch_ready = settings.legal_copy_approved and _configured("SMTP_URL")
-    chain_live_ready = settings.mode == "live" and (
-        _configured("TRONGRID_API_KEY")
-        or _configured("TRONSCAN_API_KEY")
-        or _configured("ETHERSCAN_API_KEY")
-        or _configured("ESPLORA_BASE_URL")
+    session_secret_ready = _configured("SESSION_SECRET")
+    chain_live_ready = settings.mode == "live" and bool(
+        flags["live_tron_provider"]["enabled"]
     )
 
     groups = [
@@ -55,7 +64,11 @@ def integration_status() -> dict[str, Any]:
             "key": "mode",
             "name": "Runtime mode",
             "summary": "Fixture mode keeps the demo offline and deterministic.",
-            "status": "configured" if settings.mode == "fixture" else "configured" if chain_live_ready else "missing",
+            "status": "configured"
+            if settings.mode == "fixture"
+            else "configured"
+            if chain_live_ready
+            else "missing",
             "items": [
                 {"label": "TRINETRA_MODE", "status": "configured", "detail": settings.mode},
                 {"label": "Fixture data", "status": "configured", "detail": "docs/demo_case.json"},
@@ -65,35 +78,184 @@ def integration_status() -> dict[str, Any]:
         {
             "key": "chain",
             "name": "Chain data providers",
-            "summary": "Live adapters remain closed until provider keys and live mode are configured.",
+            "summary": (
+                "Live adapters remain closed until provider keys, verification and live mode "
+                "are configured."
+            ),
             "status": "configured" if chain_live_ready else "missing",
             "items": [
-                {"label": "TRONGRID_API_KEY", "status": _status(_configured("TRONGRID_API_KEY")), "detail": "TRON provider key"},
-                {"label": "TRONSCAN_API_KEY", "status": _status(_configured("TRONSCAN_API_KEY")), "detail": "TRON fallback key"},
-                {"label": "ETHERSCAN_API_KEY", "status": _status(_configured("ETHERSCAN_API_KEY")), "detail": "EVM provider key"},
-                {"label": "ESPLORA_BASE_URL", "status": _status(_configured("ESPLORA_BASE_URL")), "detail": _value("ESPLORA_BASE_URL") or "public endpoint not set"},
+                {
+                    "label": "TRONGRID_API_KEY",
+                    "status": _status(_configured("TRONGRID_API_KEY")),
+                    "detail": "TRON provider key",
+                },
+                {
+                    "label": "TRONSCAN_API_KEY",
+                    "status": _status(_configured("TRONSCAN_API_KEY")),
+                    "detail": "TRON fallback key",
+                },
+                {
+                    "label": "ETHERSCAN_API_KEY",
+                    "status": _status(_configured("ETHERSCAN_API_KEY")),
+                    "detail": "EVM provider key",
+                },
+                {
+                    "label": "ESPLORA_BASE_URL",
+                    "status": _status(_configured("ESPLORA_BASE_URL")),
+                    "detail": _value("ESPLORA_BASE_URL") or "public endpoint not set",
+                },
+            ],
+        },
+        {
+            "key": "worker",
+            "name": "Trace frontier worker",
+            "summary": "The supervisor exposes counts and failure classes without provider keys or response content.",
+            "status": "configured" if worker["state"] == "running" else "disabled",
+            "items": [
+                {
+                    "label": "Supervisor state",
+                    "status": "configured" if worker["state"] == "running" else "disabled",
+                    "detail": str(worker["state"]),
+                },
+                {
+                    "label": "Queued frontier",
+                    "status": "configured",
+                    "detail": str(worker["queued"]),
+                },
+                {
+                    "label": "Deferred frontier",
+                    "status": "configured",
+                    "detail": str(worker["deferred"]),
+                },
+                {
+                    "label": "Worker failures",
+                    "status": "configured" if worker["failures"] == 0 else "missing",
+                    "detail": str(worker["failures"]),
+                },
+            ],
+        },
+        {
+            "key": "provider_budget",
+            "name": "Shared provider request budget",
+            "summary": "Interactive trace requests retain reserved capacity ahead of background watch polling.",
+            "status": "configured",
+            "items": [
+                {
+                    "label": "Window consumption",
+                    "status": "configured",
+                    "detail": f"{provider_budget['used']} of {provider_budget['limit']} requests",
+                },
+                {
+                    "label": "Interactive reserve",
+                    "status": "configured",
+                    "detail": str(provider_budget["interactive_reserve"]),
+                },
+                {
+                    "label": "Watch capacity remaining",
+                    "status": "configured"
+                    if provider_budget["watch_capacity_remaining"] > 0
+                    else "disabled",
+                    "detail": str(provider_budget["watch_capacity_remaining"]),
+                },
+                {
+                    "label": "Watch poll gate",
+                    "status": "configured" if flags["wallet_watch"]["enabled"] else "disabled",
+                    "detail": "in-app only; no email or messaging channel",
+                },
             ],
         },
         {
             "key": "identity",
             "name": "Government identity",
-            "summary": "Login buttons link out; callback login requires real metadata and credentials.",
-            "status": "configured" if settings.sso_callback_enabled and (cctns_oidc_ready or parichay_oidc_ready) else "disabled",
+            "summary": "OIDC and WebAuthn are unavailable shells; demonstration login is not strong authentication.",
+            "status": "disabled",
             "items": [
-                {"label": "SSO_CALLBACK_ENABLED", "status": "configured" if settings.sso_callback_enabled else "disabled", "detail": str(settings.sso_callback_enabled).lower()},
-                {"label": "CCTNS OIDC", "status": _status(cctns_oidc_ready, enabled=settings.sso_callback_enabled), "detail": "issuer, client id, client secret"},
-                {"label": "Parichay OIDC", "status": _status(parichay_oidc_ready, enabled=settings.sso_callback_enabled), "detail": "issuer, client id, client secret"},
+                {
+                    "label": "SSO_CALLBACK_ENABLED",
+                    "status": "configured" if settings.sso_callback_enabled else "disabled",
+                    "detail": str(settings.sso_callback_enabled).lower(),
+                },
+                {
+                    "label": "CCTNS OIDC",
+                    "status": _status(cctns_oidc_ready, enabled=settings.sso_callback_enabled),
+                    "detail": "issuer, client id, client secret",
+                },
+                {
+                    "label": "Parichay OIDC",
+                    "status": _status(parichay_oidc_ready, enabled=settings.sso_callback_enabled),
+                    "detail": "issuer, client id, client secret",
+                },
+                {
+                    "label": "WebAuthn",
+                    "status": "disabled",
+                    "detail": "integration shell; no approved relying-party configuration",
+                },
+            ],
+        },
+        {
+            "key": "session_security",
+            "name": "Session security",
+            "summary": "Local session controls are tested; production identity and infrastructure controls remain unavailable.",
+            "status": "configured" if session_secret_ready else "missing",
+            "items": [
+                {
+                    "label": "SESSION_SECRET",
+                    "status": _status(session_secret_ready),
+                    "detail": "required outside fixture mode; value never rendered",
+                },
+                {
+                    "label": "Server session registry",
+                    "status": "configured",
+                    "detail": "hashed tokens, idle expiry and revocation",
+                },
+                {
+                    "label": "Transport security",
+                    "status": "disabled",
+                    "detail": "local HTTP only; TLS termination not configured",
+                },
+                {
+                    "label": "Secret vault",
+                    "status": "disabled",
+                    "detail": "environment-file configuration only",
+                },
+                {
+                    "label": "Tenant authorisation boundary",
+                    "status": "disabled",
+                    "detail": "no production multi-tenant policy",
+                },
+                {
+                    "label": "Monitoring and backup",
+                    "status": "disabled",
+                    "detail": "production operations integration not configured",
+                },
             ],
         },
         {
             "key": "dispatch",
             "name": "Notice dispatch",
-            "summary": "SAHYOG/export and email dispatch stay specimen-only until legal copy and channels are approved.",
+            "summary": (
+                "SAHYOG/export and email dispatch stay specimen-only until legal copy and "
+                "channels are approved."
+            ),
             "status": "configured" if dispatch_ready else "approval_required",
             "items": [
-                {"label": "LEGAL_COPY_APPROVED", "status": "configured" if settings.legal_copy_approved else "approval_required", "detail": str(settings.legal_copy_approved).lower()},
-                {"label": "NOTICE_SPECIMEN_WATERMARK", "status": "configured" if settings.specimen_watermark else "disabled", "detail": str(settings.specimen_watermark).lower()},
-                {"label": "SMTP_URL", "status": _status(_configured("SMTP_URL")), "detail": "dispatch channel secret"},
+                {
+                    "label": "LEGAL_COPY_APPROVED",
+                    "status": "configured"
+                    if settings.legal_copy_approved
+                    else "approval_required",
+                    "detail": str(settings.legal_copy_approved).lower(),
+                },
+                {
+                    "label": "NOTICE_SPECIMEN_WATERMARK",
+                    "status": "configured" if settings.specimen_watermark else "disabled",
+                    "detail": str(settings.specimen_watermark).lower(),
+                },
+                {
+                    "label": "SMTP_URL",
+                    "status": _status(_configured("SMTP_URL")),
+                    "detail": "dispatch channel secret",
+                },
             ],
         },
     ]
@@ -103,5 +265,9 @@ def integration_status() -> dict[str, Any]:
         "environment": settings.env,
         "secrets_rendered": False,
         "secret_env_names": sorted(SECRET_ENV_NAMES),
+        "capabilities": capability_matrix(),
+        "feature_flags": flags,
+        "worker": worker,
+        "provider_budget": provider_budget,
         "groups": groups,
     }

@@ -1,0 +1,7 @@
+{% set trace_mode = snapshot.result_json.get('engine', {}).get('mode', 'fixture') if snapshot else 'fixture' %}
+{% set freshness = snapshot.result_json.get('data_freshness', {}) if snapshot else {} %}
+<div class="trace-mode-banner {{ trace_mode }}" role="status" data-trace-mode="{{ trace_mode }}">
+  <strong>{{ 'LIVE PROVIDER MODE' if trace_mode == 'live' else 'CONTROLLED FIXTURE MODE' }}</strong>
+  <span>{% if trace_mode == 'live' %}Confirmed provider data only enters attribution. Custody attribution remains separately gated.{% else %}Demonstration data is being replayed. This is not a live blockchain result.{% endif %}</span>
+  {% if freshness.get('chain_data_as_of_ms') %}<time class="mono">Chain data as of {{ freshness.chain_data_as_of_ms | ist }}</time>{% endif %}
+</div>

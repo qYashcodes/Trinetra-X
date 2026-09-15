@@ -21,6 +21,7 @@
   {% set active_page = 'notice' %}
   {% include "_workspace_nav.html" %}
   <div class="notice-shell">
+    {% include "_trace_mode_banner.html" %}
     <header class="notice-toolbar">
       <div class="notice-crumb"><a href="/findings/{{ finding.id }}">Custody finding</a><i></i><strong>Freeze notice — {{ 'dispatched' if dispatched else 'draft' }}</strong><span class="mono">{{ case.ack_no }}</span></div>
       <div class="notice-tools">
@@ -61,6 +62,7 @@
           <div><span><i></i><a href="#">Trace report (6 pages)</a></span><b class="mono">PDF, 412 KB</b></div>
           <div><span><i></i><a href="#">Graph exhibit, hops 0 to 4</a></span><b class="mono">PNG, 1.1 MB</b></div>
           <div><span><i></i><a href="#">Complaint extract</a></span><b class="mono">PDF, 96 KB</b></div>
+          <div><span><i></i><a href="#">Methodology annex</a></span><b class="mono">JSON</b></div>
         </section>
         <section class="notice-countersign">
           <h3>Countersignature</h3>
@@ -83,7 +85,7 @@
     <div role="dialog" aria-modal="true" aria-labelledby="notice-confirm-title" aria-describedby="notice-confirm-description">
       <h2 id="notice-confirm-title">Dispatch this notice?</h2>
       <p id="notice-confirm-description">Dispatch is recorded in the audit log and cannot be recalled from this screen. Check the evidence below against the document.</p>
-      <dl><dt>Recipient</dt><dd>{{ entity.name }}</dd><dt>Deposit address</dt><dd class="mono" title="{{ finding.deposit_address }}">{{ finding.deposit_address[:6] }}...{{ finding.deposit_address[-4:] }}</dd><dt>Amount restrained</dt><dd class="mono">{{ finding.amount_credited_base | amount }}</dd><dt>Response deadline</dt><dd class="mono" data-confirm-period>{{ '7 days' if notice.deadline_hours == 168 else notice.deadline_hours ~ ' hours' }}</dd><dt>Attachments</dt><dd class="mono">3 files</dd><dt>Channels</dt><dd class="mono" data-confirm-channels>2 selected</dd><dt>Countersigned by</dt><dd>{{ countersigner.name or 'Supervising officer' }}</dd></dl>
+      <dl><dt>Recipient</dt><dd>{{ entity.name }}</dd><dt>Deposit address</dt><dd class="mono" title="{{ finding.deposit_address }}">{{ finding.deposit_address[:6] }}...{{ finding.deposit_address[-4:] }}</dd><dt>Amount restrained</dt><dd class="mono">{{ finding.amount_credited_base | amount }}</dd><dt>Response deadline</dt><dd class="mono" data-confirm-period>{{ '7 days' if notice.deadline_hours == 168 else notice.deadline_hours ~ ' hours' }}</dd><dt>Attachments</dt><dd class="mono">4 files</dd><dt>Channels</dt><dd class="mono" data-confirm-channels>2 selected</dd><dt>Countersigned by</dt><dd>{{ countersigner.name or 'Supervising officer' }}</dd></dl>
       <div><button type="submit" form="notice-dispatch-form" data-confirm-send>Dispatch notice</button><button type="button" class="notice-outline" data-cancel-send>Cancel</button></div>
     </div>
   </div>

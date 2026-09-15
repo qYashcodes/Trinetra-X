@@ -220,6 +220,21 @@ def test_notice_requires_distinct_persisted_countersignature_before_dispatch(
         assert "SPECIMEN · NOT FOR LIVE DISPATCH" in draft.text
         assert "approved 2026-07-01" not in draft.text
 
+        sahyog = investigator.get(f"/api/notices/{notice_id}/sahyog-export")
+        assert sahyog.status_code == 200
+        sahyog_data = sahyog.json()
+        assert sahyog_data["submission"] == "integration_pending"
+        assert sahyog_data["submission_status"] == "integration_pending"
+        assert sahyog_data["specimen_only"] is True
+        assert sahyog_data["external_submission_performed"] is False
+        assert sahyog_data["integration_boundary"] == {
+            "provider": "SAHYOG",
+            "approved_schema_configured": False,
+            "credentials_configured": False,
+            "live_dispatch_enabled": False,
+            "reason": "Government portal submission requires approved schemas, provider metadata and credentials.",
+        }
+
         premature = investigator.post(
             f"/notices/{notice_id}/dispatch",
             data={
@@ -357,3 +372,46 @@ def test_notice_requires_distinct_persisted_countersignature_before_dispatch(
     assert "notice.countersign_request" in actions
     assert "notice.countersign" in actions
     assert "notice.dispatch" in actions
+
+
+def test_sahyog_export_rejects_notice_without_finding(isolated_engine) -> None:
+    ts = 1_788_000_000_000
+    with Session(isolated_engine) as session:
+        session.add(
+            Case(
+                ack_no="NCRP/2026/MH/ORPHAN",
+                category="investment_fraud",
+                jurisdiction="MH",
+                filed_ts_ms=ts,
+                amount_reported_base=1,
+                asset_symbol="USDT",
+                chain_family="TRON",
+                chain_network="mainnet",
+                reported_address="TXorphanNotice111111111111111111111111",
+                payment_txid="orphan-notice",
+                payment_ts_ms=ts,
+                stage=CaseStage.notice_draft,
+                created_ts_ms=ts,
+                updated_ts_ms=ts,
+            )
+        )
+        session.commit()
+        session.add(
+            Notice(
+                case_id=1,
+                finding_id=999,
+                notice_no="MH-CYBER/ORPHAN/1",
+                status="draft",
+                deadline_hours=24,
+                created_by_pis="48421",
+                created_ts_ms=ts,
+            )
+        )
+        session.commit()
+
+    with TestClient(app) as client:
+        login_and_seed(client)
+        response = client.get("/api/notices/1/sahyog-export")
+
+    assert response.status_code == 404
+    assert "Finding not found for notice." in response.text

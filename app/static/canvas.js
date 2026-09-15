@@ -29,7 +29,7 @@
     {
       id: "h0", title: "Victim payment recipient", chip: "Reported", tone: "slate",
       subtitle: "Address recorded as the recipient in the filed complaint", address: shortenAddress(path[0].address, 13, 7), fullAddress: path[0].address,
-      classification: "Unclassified address", confidence: `${Math.round(path[0].confidence * 100)}%`, received: formatAmount(path[0].value_base),
+      classification: "Unclassified address", confidence: "low evidence band", received: formatAmount(path[0].value_base),
       onward: formatAmount(path[1].value_base), firstSeen: formatIst(path[0].ts_ms), inbound: "31", hash: shortHash(path[0].txids[0]),
       whyTitle: "Why TRINETRA flagged this address",
       why: ["Named in the NCRP complaint", "Full balance swept in 12 minutes", "No service attribution found", "Single onward destination"],
@@ -38,7 +38,7 @@
     {
       id: "h1", title: "Pass-through wallet", chip: "Cluster", tone: "slate",
       subtitle: "Intermediate hop with a single inbound and outbound transfer", address: shortenAddress(path[1].address, 13, 7), fullAddress: path[1].address,
-      classification: "Unclassified hop", confidence: `${Math.round(path[1].confidence * 100)}%`, received: formatAmount(path[1].value_base),
+      classification: "Unclassified hop", confidence: "low evidence band", received: formatAmount(path[1].value_base),
       onward: formatAmount(path[2].value_base), firstSeen: formatIst(path[1].ts_ms), inbound: "2", hash: shortHash(path[1].txids[0]),
       whyTitle: "Why TRINETRA treats this as a hop",
       why: ["One inbound, one outbound", "Balance returned to near zero", "Sweep timing 3m 51s", "No registry match"],
@@ -47,7 +47,7 @@
     {
       id: "h2", title: "Peel chain wallet", chip: "Peel chain", tone: "amber",
       subtitle: "Splits value, with one branch parked outside the dominant flow", address: shortenAddress(path[2].address, 13, 7), fullAddress: path[2].address,
-      classification: "Peel-chain wallet", confidence: `${Math.round(path[2].confidence * 100)}%`, received: formatAmount(path[2].value_base),
+      classification: "Peel-chain wallet", confidence: "medium evidence band", received: formatAmount(path[2].value_base),
       onward: `${formatAmount(path[3].value_base)} (${(path[3].share_bp / 100).toFixed(2)}%)`, firstSeen: formatIst(path[2].ts_ms), inbound: "5", hash: shortHash(path[2].txids[0]),
       whyTitle: "Why TRINETRA calls this a peel chain",
       why: [`${formatAmount(parkedValue)} parked outside the dominant flow`, "Largest share forwarded onward", "Parked branches retained in the case record", "No custody attribution at this hop"],
@@ -56,7 +56,7 @@
     {
       id: "h3", title: "Consolidation wallet", chip: "Cluster", tone: "slate",
       subtitle: "Forwards the surviving tranche to a single deposit address", address: shortenAddress(path[3].address, 13, 7), fullAddress: path[3].address,
-      classification: "Consolidation hop", confidence: `${Math.round(path[3].confidence * 100)}%`, received: formatAmount(path[3].value_base),
+      classification: "Consolidation hop", confidence: "medium evidence band", received: formatAmount(path[3].value_base),
       onward: formatAmount(path[4].value_base), firstSeen: formatIst(path[3].ts_ms), inbound: "5", hash: shortHash(path[3].txids[0]),
       whyTitle: "Why TRINETRA treats this as a hop",
       why: ["Single onward destination", "Destination feeds one exchange hot wallet", "Forward ratio 0.963", "Sweep timing 6m 42s"],
@@ -67,7 +67,7 @@
       subtitle: "Custodial deposit address, funds at rest behind the exchange",
       address: shortenAddress(fixtureAddresses.deposit, 4), fullAddress: fixtureAddresses.deposit,
       addressRole: "Exchange deposit address",
-      classification: "Probable deposit address", confidence: `${Math.round(path[4].confidence * 100)}%`, received: formatAmount(path[4].value_base),
+      classification: "Probable deposit address", confidence: "high evidence band", received: formatAmount(path[4].value_base),
       onward: `${formatAmount(evidence.terminal.amount_credited_base)} at rest`, firstSeen: formatIst(path[4].ts_ms), inbound: "187", hash: shortHash(path[4].txids[0]),
       whyTitle: "Why TRINETRA thinks this is a deposit address",
       why: ["187 of 187 outbounds to one hot wallet", "Balance swept to zero each time", "Fan-in from 187 sources", "Median sweep 4 minutes"],
@@ -78,10 +78,10 @@
       subtitle: "Registered VASP, Coinsphere Global Pte Ltd",
       address: shortenAddress(fixtureAddresses.hotWallet, 13), fullAddress: fixtureAddresses.hotWallet,
       addressRole: "Custodian hot-wallet address",
-      classification: "Verified VASP hot wallet", confidence: "94%", received: formatAmount(evidence.terminal.amount_credited_base),
+      classification: "Verified VASP hot wallet", confidence: "verified registry role", received: formatAmount(evidence.terminal.amount_credited_base),
       onward: "Operational (exchange)", firstSeen: formatIst(evidence.hot_wallet.ts_ms), inbound: "2", hash: shortHash(evidence.hot_wallet.txid),
       whyTitle: "Why TRINETRA thinks this is Coinsphere",
-      why: ["Address found in VASP registry dataset", "Matches known Coinsphere address cluster", "Consistent transaction behaviour", "Historical aggregation patterns", "94% confidence score"],
+      why: ["Address found in VASP registry dataset", "Matches known Coinsphere address cluster", "Consistent transaction behaviour", "Historical aggregation patterns", "Evidence band is high; no calibrated probability is asserted"],
       entity: [["Name", evidence.entity.name], ["Type", "Centralized Exchange (VASP)"], ["Jurisdiction", evidence.entity.jurisdiction], ["Status", "Active"], ["Source", "TRINETRA VASP dataset"], ["Last updated", "2026-08-24"]]
     }
   ];
@@ -101,6 +101,7 @@
     .replaceAll("'", "&#039;");
 
   const currentNode = () => nodes.find((node) => node.id === state.selected) || nodes[nodes.length - 1];
+  const explainTarget = (node) => node.id === "ex" ? "terminal" : `hop:${node.id.slice(1)}`;
   const say = (message) => { if (live) live.textContent = message; };
 
   function keyValueRows(node) {
@@ -122,6 +123,7 @@
     const why = node.why.map((item) => `<span><i aria-hidden="true">✓</i><b>${escapeHtml(item)}</b></span>`).join("");
     const entity = node.entity.map(([key, value]) => `<span><small>${escapeHtml(key)}</small><b>${escapeHtml(value)}</b></span>`).join("");
     return `${keyValueRows(node)}
+      <button class="detail-primary" type="button" data-explain-target="${escapeHtml(explainTarget(node))}"><span>Explain this ${node.id === "ex" ? "terminal" : "hop"}</span><span aria-hidden="true">→</span></button>
       <button class="detail-primary" type="button" data-open-transactions><span>View transactions</span><span aria-hidden="true">→</span></button>
       <a class="detail-primary" href="/findings/1"><span>Review custody findings</span><span aria-hidden="true">→</span></a>
       <div class="detail-why"><strong>${escapeHtml(node.whyTitle)}</strong>${why}</div>

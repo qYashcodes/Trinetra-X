@@ -10,7 +10,7 @@ body.trace-page {
   width: 100vw;
   height: 100vh;
   display: grid;
-  grid-template-rows: 62px minmax(0, 1fr) 69px;
+  grid-template-rows: 62px 38px minmax(0, 1fr) 69px;
   overflow: hidden;
   background: #f5f7fa;
   font-family: "Noto Sans", Arial, sans-serif;

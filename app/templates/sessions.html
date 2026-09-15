@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Active sessions · TRINETRA{% endblock %}
+{% block breadcrumb %}<div class="breadcrumb"><span>Security</span><b>/</b><strong>Active sessions</strong></div>{% endblock %}
+{% block content %}
+<header class="page-head sessions-head">
+  <div>
+    <span class="eyebrow">Identity and access</span>
+    <h1>Active sessions</h1>
+    <p>Signed-in devices for service ID {{ user.pis }}. Session identifiers and browser fingerprints are not displayed.</p>
+  </div>
+</header>
+
+<section class="sessions-panel" aria-labelledby="sessions-list-title">
+  <div class="sessions-panel-head">
+    <div>
+      <h2 id="sessions-list-title">Signed-in devices</h2>
+      <p>{{ sessions | length }} active session{{ '' if sessions | length == 1 else 's' }}</p>
+    </div>
+    <form method="post" action="/auth/logout-all">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="button-secondary" type="submit">Sign out all devices</button>
+    </form>
+  </div>
+  <div class="sessions-table-wrap">
+    <table>
+      <thead>
+        <tr><th>Device</th><th>Role</th><th>Started</th><th>Last active</th><th>Status</th></tr>
+      </thead>
+      <tbody>
+        {% for row in sessions %}
+        <tr>
+          <td><strong>{{ row.device_label }}</strong></td>
+          <td>{{ row.role.value | labelize }}</td>
+          <td>{{ row.created_ts_ms | ist }}</td>
+          <td>{{ row.last_active_ts_ms | ist }}</td>
+          <td><span class="chip {{ 'high' if row.id == current_session_id else 'low' }}">{{ 'Current' if row.id == current_session_id else 'Active' }}</span></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5">No active sessions.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="sessions-security-note">A verified credential change revokes every active session. Government identity and WebAuthn remain unavailable integration shells in this prototype.</p>
+</section>
+{% endblock %}

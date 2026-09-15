@@ -1,0 +1,27 @@
+{% if explainability %}
+<script type="application/json" data-trace-explainability>{{ explainability | tojson }}</script>
+<dialog class="trace-explain-dialog" data-trace-explain-dialog aria-labelledby="trace-explain-title">
+  <div class="trace-explain-shell">
+    <header class="trace-explain-header">
+      <div><span>Snapshot explanation</span><h2 id="trace-explain-title" data-explain-title>Case methodology and limits</h2><p class="mono" data-explain-meta></p></div>
+      <button type="button" data-explain-close aria-label="Close explanation">&times;</button>
+    </header>
+    <div class="trace-explain-toolbar">
+      <div class="trace-explain-register" role="tablist" aria-label="Explanation register">
+        <button type="button" role="tab" aria-selected="true" data-explain-register="investigator">Investigator</button>
+        <button type="button" role="tab" aria-selected="false" data-explain-register="technical">Technical</button>
+      </div>
+      <span data-explain-register-label>Plain-language investigative record</span>
+    </div>
+    <div class="trace-explain-body">
+      <nav aria-label="Explanation subjects" data-explain-subjects>
+        {% for item in explainability['items'] %}<button type="button" data-explain-subject="{{ item.id }}" aria-current="{{ 'true' if item.id == 'methodology' else 'false' }}"><span>{{ item.title }}</span><small>{{ item.display_amount }}</small></button>{% endfor %}
+      </nav>
+      <main data-explain-content>
+        {% set fallback = explainability['items'][-1] %}
+        {% for section in fallback.registers.investigator %}<section><h3>{{ section.title }}</h3><p>{{ section.body }}</p></section>{% endfor %}
+      </main>
+    </div>
+  </div>
+</dialog>
+{% endif %}

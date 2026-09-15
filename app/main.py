@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import secrets
 import zipfile
 from contextlib import asynccontextmanager
@@ -21,11 +22,32 @@ try:
 except Exception:  # pragma: no cover - import guard for partial installs
     EventSourceResponse = None
 
-from app.db import get_session, init_db
+from app.db import engine, get_session, init_db
 from app.docket_fixture import docket_fixture
-from app.engine_bridge import ChainRef, TraceParams, TraceSeed, detect_chain, resolve_chain_activity, run_trace
+from app.engine_bridge import (
+    ChainRef,
+    TraceParams,
+    TraceSeed,
+    detect_chain,
+    resolve_chain_activity,
+    run_trace,
+    trace_params_from_json,
+)
 from app.integrations.complaints.fixture import FixtureComplaintSource
-from app.models import Case, CaseStage, Dispatch, Finding, Notice, TraceEvent, TraceSnapshot
+from app.models import (
+    CanonicalTraceEvent,
+    Case,
+    CaseStage,
+    Dispatch,
+    Finding,
+    FrontierItem,
+    Notice,
+    OfficerRole,
+    OfficerSession,
+    SourceCoverage,
+    TraceEvent,
+    TraceSnapshot,
+)
 from app.providers.oidc import build_authorization_request, verify_callback
 from app.providers.webauthn import registration_options, verify_registration
 from app.repository import (
@@ -36,27 +58,75 @@ from app.repository import (
     prepare_notice,
     seed_demo,
 )
-from app.services.audit import append_audit_event, verify_audit_chain
+from app.services.audit import append_audit_event, read_audit_events, verify_audit_chain
 from app.services.demo import demo_case
 from app.services.exhibit import snapshot_svg
-from app.services.hash import sha256_bytes
+from app.services.explainability import (
+    methodology_annex,
+    methodology_annex_text,
+    trace_explainability,
+)
+from app.services.hash import sha256_bytes, sha256_json
 from app.services.integrations import integration_status
+from app.services.feature_flags import feature_flags
+from app.services.live_trace import (
+    LiveTraceInputError,
+    parse_amount_base,
+    parse_ist_timestamp,
+    parse_trace_params,
+    snapshot_runtime_status,
+)
 from app.services.money import format_amount, format_millions
 from app.services.notices import notice_view_model, sahyog_manifest
-from app.services.risk import risk_check, risk_page_data
+from app.services.risk import live_risk_check, risk_check, risk_page_data
 from app.services.search import search_records
+from app.services.sessions import (
+    active_officer_sessions,
+    create_officer_session,
+    end_officer_session,
+    officer_identity,
+    record_session_activity,
+    resolve_officer_session,
+    revoke_all_officer_sessions,
+    signout_summary,
+)
 from app.services.time import format_ist, now_ms
+from app.services.worker import SupervisedFrontierWorker
 from app.settings import ROOT_DIR, settings
+
+
+def require_session_secret(mode: str, configured_secret: str | None) -> None:
+    if configured_secret:
+        return
+    if mode == "fixture":
+        return
+    raise RuntimeError(
+        "SESSION_SECRET is required outside fixture mode; refusing to start with persistent "
+        "login sessions disabled."
+    )
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    require_session_secret(settings.mode, settings.session_secret)
     init_db()
-    yield
+    frontier_worker = SupervisedFrontierWorker.from_environment(engine)
+    _app.state.frontier_worker = frontier_worker
+    frontier_worker.start()
+    try:
+        yield
+    finally:
+        frontier_worker.stop()
 
 
 app = FastAPI(title="TRINETRA", version="0.1.0", lifespan=lifespan)
-app.add_middleware(SessionMiddleware, secret_key=settings.session_secret, same_site="lax", https_only=False)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.session_secret or secrets.token_urlsafe(48),
+    same_site="lax",
+    https_only=settings.session_cookie_secure,
+    max_age=settings.session_idle_timeout_seconds + 300,
+)
 app.mount("/static", StaticFiles(directory=ROOT_DIR / "app" / "static"), name="static")
 
 templates = Jinja2Templates(directory=ROOT_DIR / "app" / "templates")
@@ -189,16 +259,70 @@ def case_trail(
     return steps
 
 
+def artifact_identity(
+    user: dict,
+    generated_ts_ms: int,
+    audit_row: dict | None,
+) -> dict:
+    audit_row = audit_row or {}
+    demonstration = user.get("authentication_kind") == "prototype_demonstration"
+    return {
+        "generated_ts_ms": generated_ts_ms,
+        "generated_by": {
+            "name": user.get("name"),
+            "service_id": user.get("pis"),
+            "unit": user.get("desk"),
+            "role": user.get("role"),
+        },
+        "authentication_kind": user.get("authentication_kind"),
+        "artifact_posture": (
+            "demonstration_generated" if demonstration else "authenticated_export"
+        ),
+        "audit_chain_reference": {
+            "action": audit_row.get("action"),
+            "ts_ms": audit_row.get("ts_ms"),
+            "row_hash": audit_row.get("row_hash"),
+        },
+    }
+
+
+def snapshot_explanation(session: Session, snapshot: TraceSnapshot) -> dict:
+    canonical_events = session.exec(
+        select(CanonicalTraceEvent)
+        .where(CanonicalTraceEvent.snapshot_id == snapshot.id)
+        .order_by(CanonicalTraceEvent.tx_index, CanonicalTraceEvent.event_index, CanonicalTraceEvent.id)
+    ).all()
+    frontier_items = session.exec(
+        select(FrontierItem)
+        .where(FrontierItem.snapshot_id == snapshot.id)
+        .order_by(FrontierItem.depth, FrontierItem.priority_base.desc(), FrontierItem.id)
+    ).all()
+    source_coverage = session.exec(
+        select(SourceCoverage)
+        .where(SourceCoverage.snapshot_id == snapshot.id)
+        .order_by(SourceCoverage.retrieval_ts_ms, SourceCoverage.id)
+    ).all()
+    return trace_explainability(
+        snapshot.result_json,
+        canonical_events=canonical_events,
+        frontier_items=frontier_items,
+        source_coverage=source_coverage,
+    )
+
+
 def evidence_manifest(
     case: Case,
     snapshot: TraceSnapshot | None,
     finding: Finding | None,
     notice: Notice | None,
     dispatches: list[Dispatch],
+    artifact: dict | None = None,
 ) -> dict:
     graph_svg = snapshot_svg(snapshot.result_json).encode("utf-8") if snapshot else b""
+    annex = methodology_annex(snapshot.result_json) if snapshot else None
     return {
         "schema": "trinetra.evidence_manifest/1",
+        "artifact": artifact,
         "case": {
             "id": case.id,
             "ack_no": case.ack_no,
@@ -214,6 +338,19 @@ def evidence_manifest(
             "schema": snapshot.snapshot_schema,
             "sha256": snapshot.sha256,
             "status": snapshot.status,
+            "trace_mode": snapshot.result_json.get("engine", {}).get("mode"),
+            "params": snapshot.result_json.get("params"),
+            "data_freshness": snapshot.result_json.get("data_freshness"),
+            "provider_evidence": snapshot.result_json.get("provider_evidence", []),
+            "unconfirmed_observations": {
+                "count": len(snapshot.result_json.get("unconfirmed_observations") or []),
+                "warning": (
+                    "Observation only; excluded from attribution, canonical evidence and "
+                    "terminal decisions."
+                ),
+            },
+            "parent_snapshot_id": snapshot.parent_snapshot_id,
+            "superseded_by_id": snapshot.superseded_by_id,
             "started_ts_ms": snapshot.started_ts_ms,
             "closed_ts_ms": snapshot.closed_ts_ms,
             "graph_exhibit_sha256": sha256_bytes(graph_svg),
@@ -248,6 +385,7 @@ def evidence_manifest(
             }
             for row in dispatches
         ],
+        "methodology_annex": annex,
         "audit": {
             "chain_verified": verify_audit_chain(),
             "storage": "var/audit.jsonl",
@@ -261,8 +399,16 @@ def evidence_bundle_bytes(
     finding: Finding | None,
     notice: Notice | None,
     dispatches: list[Dispatch],
+    artifact: dict | None = None,
 ) -> bytes:
-    manifest = evidence_manifest(case, snapshot, finding, dispatches=dispatches, notice=notice)
+    manifest = evidence_manifest(
+        case,
+        snapshot,
+        finding,
+        dispatches=dispatches,
+        notice=notice,
+        artifact=artifact,
+    )
     buffer = BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("manifest.json", json.dumps(manifest, indent=2, sort_keys=True))
@@ -273,9 +419,12 @@ def evidence_bundle_bytes(
                     "TRINETRA evidence bundle",
                     "",
                     f"Case: {case.ack_no}",
+                    f"Trace mode: {snapshot.result_json.get('engine', {}).get('mode', 'none') if snapshot else 'none'}",
+                    f"Chain data as of (UTC ms): {snapshot.result_json.get('data_freshness', {}).get('chain_data_as_of_ms') if snapshot else 'not available'}",
                     "Purpose: offline investigative-aid export for review.",
+                    "Methodology: methodology_annex.json and methodology_annex.txt are included when a trace snapshot exists.",
                     "Legal posture: specimen prototype; not for live dispatch unless configured and approved.",
-                    "No guilt assertion is made by this bundle.",
+                    "No offence finding is made by this bundle.",
                     "",
                 ]
             ),
@@ -287,6 +436,14 @@ def evidence_bundle_bytes(
                 json.dumps(snapshot.result_json, indent=2, sort_keys=True),
             )
             archive.writestr("graph_exhibit.svg", snapshot_svg(snapshot.result_json))
+            archive.writestr(
+                "methodology_annex.json",
+                json.dumps(methodology_annex(snapshot.result_json), indent=2, sort_keys=True),
+            )
+            archive.writestr(
+                "methodology_annex.txt",
+                methodology_annex_text(snapshot.result_json),
+            )
         if finding:
             archive.writestr(
                 "custody_finding.json",
@@ -352,10 +509,17 @@ def build_intake_particulars(record: dict | None, chain: str | None = None, *, a
     return rows, completed, state
 
 
-def session_user(request: Request) -> dict:
-    user = request.session.get("user")
-    if not user:
+def session_user(
+    request: Request,
+    session: Session = Depends(get_session),
+) -> dict:
+    row = resolve_officer_session(session, request.session.get("session_token"))
+    if row is None:
+        request.session.clear()
         raise HTTPException(status_code=303, headers={"Location": "/login"})
+    request.state.officer_session = row
+    user = officer_identity(row)
+    request.session["user"] = user
     return user
 
 
@@ -373,13 +537,22 @@ def require_csrf(request: Request, submitted_token: str | None) -> None:
         raise HTTPException(403, "Invalid or missing workflow token.")
 
 
-def set_active_case(request: Request, case: Case, snapshot: TraceSnapshot | None = None, finding: Finding | None = None) -> None:
+def set_active_case(
+    request: Request,
+    case: Case,
+    snapshot: TraceSnapshot | None = None,
+    finding: Finding | None = None,
+    session: Session | None = None,
+) -> None:
     request.session["active_case"] = {
         "id": case.id,
         "ack_no": case.ack_no,
         "snapshot_id": snapshot.id if snapshot else None,
         "finding_id": finding.id if finding else None,
     }
+    officer_session = getattr(request.state, "officer_session", None)
+    if session is not None and officer_session is not None and case.id is not None:
+        record_session_activity(session, officer_session, case_id=case.id)
 
 
 def active_case_from_session(request: Request) -> dict:
@@ -411,6 +584,11 @@ def template_context(request: Request, user: dict | None = None) -> dict:
         "demo": demo_case(),
         "active_case": active_case_from_session(request),
         "csrf_token": csrf_token(request) if user else "",
+        "session_idle": {
+            "obscure_seconds": settings.session_idle_obscure_seconds,
+            "warning_seconds": settings.session_idle_warning_seconds,
+            "timeout_seconds": settings.session_idle_timeout_seconds,
+        },
     }
 
 
@@ -427,10 +605,31 @@ def login(request: Request) -> HTMLResponse:
 
 
 @app.post("/auth/prototype")
-def prototype_login(request: Request, role: Annotated[str, Form()] = "io") -> Response:
-    officer = demo_case()["officers"]["supervisor" if role == "supervisor" else "io"]
-    request.session["user"] = {"role": role, **officer}
-    append_audit_event(officer["pis"], "login.prototype", "session")
+def prototype_login(
+    request: Request,
+    role: Annotated[str, Form()] = "io",
+    session: Session = Depends(get_session),
+) -> Response:
+    if role not in {OfficerRole.io.value, OfficerRole.supervisor.value}:
+        raise HTTPException(400, "Unknown demonstration account role.")
+    selected_role = OfficerRole(role)
+    officer = demo_case()["officers"][role]
+    request.session.clear()
+    officer_session, raw_token = create_officer_session(
+        session,
+        officer,
+        selected_role,
+        request.headers.get("user-agent"),
+    )
+    user = officer_identity(officer_session)
+    request.session["user"] = user
+    request.session["session_token"] = raw_token
+    append_audit_event(
+        officer["pis"],
+        "login.prototype",
+        f"session:{officer_session.id}",
+        {"role": role, "authentication_kind": "prototype_demonstration"},
+    )
     return RedirectResponse("/docket", status_code=303)
 
 
@@ -452,7 +651,79 @@ def oidc_callback(provider: str, request: Request) -> HTMLResponse:
 
 
 @app.post("/auth/logout")
-def logout(request: Request) -> Response:
+def logout(
+    request: Request,
+    csrf_token: Annotated[str | None, Form()] = None,
+    reason: Annotated[str, Form()] = "officer_signout",
+    session: Session = Depends(get_session),
+) -> Response:
+    require_csrf(request, csrf_token)
+    row = end_officer_session(
+        session,
+        request.session.get("session_token"),
+        reason="idle_timeout" if reason == "idle_timeout" else "officer_signout",
+    )
+    if row is not None:
+        append_audit_event(
+            row.officer_pis,
+            "session.signout",
+            f"session:{row.id}",
+            signout_summary(row),
+        )
+    request.session.clear()
+    return RedirectResponse("/login", status_code=303)
+
+
+@app.post("/auth/session/extend")
+def extend_session(
+    request: Request,
+    csrf_token: Annotated[str | None, Form()] = None,
+    session: Session = Depends(get_session),
+    _user: dict = Depends(session_user),
+) -> dict:
+    require_csrf(request, csrf_token)
+    row: OfficerSession = request.state.officer_session
+    return {"status": "extended", "expires_ts_ms": row.expires_ts_ms}
+
+
+@app.get("/sessions", response_class=HTMLResponse)
+def sessions_page(
+    request: Request,
+    session: Session = Depends(get_session),
+    user: dict = Depends(session_user),
+) -> HTMLResponse:
+    rows = active_officer_sessions(session, user["pis"])
+    current: OfficerSession = request.state.officer_session
+    return templates.TemplateResponse(
+        request,
+        "sessions.html",
+        {
+            **template_context(request, user),
+            "sessions": rows,
+            "current_session_id": current.id,
+        },
+    )
+
+
+@app.post("/auth/logout-all")
+def logout_all_sessions(
+    request: Request,
+    csrf_token: Annotated[str | None, Form()] = None,
+    session: Session = Depends(get_session),
+    user: dict = Depends(session_user),
+) -> Response:
+    require_csrf(request, csrf_token)
+    rows = revoke_all_officer_sessions(
+        session,
+        user["pis"],
+        reason="officer_signout_all",
+    )
+    append_audit_event(
+        user["pis"],
+        "session.signout_all",
+        f"officer:{user['pis']}",
+        {"session_ids": [row.id for row in rows], "session_count": len(rows)},
+    )
     request.session.clear()
     return RedirectResponse("/login", status_code=303)
 
@@ -460,14 +731,21 @@ def logout(request: Request) -> Response:
 @app.get("/docket", response_class=HTMLResponse)
 def docket(request: Request, session: Session = Depends(get_session), user: dict = Depends(session_user)) -> HTMLResponse:
     case = get_active_case(request, session) or seed_demo(session)
-    snapshot, finding = get_or_create_trace(session, case)
-    set_active_case(request, case, snapshot, finding)
+    trace_mode = "fixture" if complaints.fetch(case.ack_no) else "auto"
+    snapshot, finding = get_or_create_trace(session, case, trace_mode=trace_mode)
+    set_active_case(request, case, snapshot, finding, session)
     notice = session.exec(select(Notice).where(Notice.case_id == case.id)).first()
     dispatches = (
         session.exec(select(Dispatch).where(Dispatch.notice_id == notice.id).order_by(Dispatch.id)).all()
         if notice
         else []
     )
+    snapshot_history = session.exec(
+        select(TraceSnapshot)
+        .where(TraceSnapshot.case_id == case.id)
+        .order_by(TraceSnapshot.id.desc())
+    ).all()
+    retrace_audit = read_audit_events(subject=case.ack_no, actions={"trace.retrace"})
     ctx = {
         **template_context(request, user),
         "case": case,
@@ -477,6 +755,8 @@ def docket(request: Request, session: Session = Depends(get_session), user: dict
         "notice": notice,
         "case_trail": case_trail(case, snapshot, finding, notice, dispatches),
         "docket": docket_fixture(case),
+        "snapshot_history": snapshot_history,
+        "retrace_audit": retrace_audit,
     }
     return templates.TemplateResponse(request, "docket.html", ctx)
 
@@ -499,6 +779,177 @@ def new_case(request: Request, user: dict = Depends(session_user)) -> HTMLRespon
             "intake_state": intake_state,
         },
     )
+
+
+def _live_intake_response(
+    request: Request,
+    user: dict,
+    *,
+    values: dict | None = None,
+    error: str | None = None,
+    status_code: int = 200,
+) -> HTMLResponse:
+    live_flag = feature_flags()["live_tron_trace"]
+    return templates.TemplateResponse(
+        request,
+        "live_intake.html",
+        {
+            **template_context(request, user),
+            "live_flag": live_flag,
+            "values": values or {},
+            "intake_error": error,
+        },
+        status_code=status_code,
+    )
+
+
+@app.get("/cases/live/new", response_class=HTMLResponse)
+def new_live_case(request: Request, user: dict = Depends(session_user)) -> HTMLResponse:
+    draft = request.session.get("risk_case_draft") or {}
+    values = (
+        {
+            "seed_kind": "address",
+            "seed_value": str(draft.get("address") or ""),
+            "case_reference": "",
+        }
+        if draft.get("address")
+        else None
+    )
+    return _live_intake_response(request, user, values=values)
+
+
+@app.post("/cases/live/start", response_class=HTMLResponse)
+def start_live_case(
+    request: Request,
+    seed_kind: Annotated[str, Form()],
+    seed_value: Annotated[str, Form()],
+    amount: Annotated[str, Form()],
+    csrf_token: Annotated[str | None, Form()] = None,
+    recipient_address: Annotated[str | None, Form()] = None,
+    payment_ts_ist: Annotated[str | None, Form()] = None,
+    case_reference: Annotated[str | None, Form()] = None,
+    max_depth: Annotated[str, Form()] = "5",
+    time_window_hours: Annotated[str, Form()] = "8",
+    value_floor_share: Annotated[str, Form()] = "0.02",
+    breadth_cap: Annotated[str, Form()] = "3",
+    address_budget: Annotated[str, Form()] = "60",
+    strategy: Annotated[str, Form()] = "dominant_fund_flow",
+    include_unconfirmed: Annotated[str | None, Form()] = None,
+    session: Session = Depends(get_session),
+    user: dict = Depends(session_user),
+) -> Response:
+    require_csrf(request, csrf_token)
+    values = {
+        "seed_kind": seed_kind,
+        "seed_value": seed_value,
+        "recipient_address": recipient_address or "",
+        "amount": amount,
+        "payment_ts_ist": payment_ts_ist or "",
+        "case_reference": case_reference or "",
+        "max_depth": max_depth,
+        "time_window_hours": time_window_hours,
+        "value_floor_share": value_floor_share,
+        "breadth_cap": breadth_cap,
+        "address_budget": address_budget,
+        "strategy": strategy,
+        "include_unconfirmed": include_unconfirmed,
+    }
+    live_flag = feature_flags()["live_tron_trace"]
+    if not live_flag["enabled"]:
+        missing = ", ".join(str(name) for name in live_flag.get("missing_gates") or [])
+        detail = f" Missing: {missing}." if missing else ""
+        return _live_intake_response(
+            request,
+            user,
+            values=values,
+            error=f"Live TRON tracing is unavailable.{detail}",
+            status_code=409,
+        )
+    try:
+        if seed_kind not in {"address", "txid"}:
+            raise LiveTraceInputError("Select address or transaction hash as the seed type.")
+        normalized_seed = seed_value.strip()
+        normalized_recipient = (recipient_address or "").strip()
+        if seed_kind == "txid":
+            if not re.fullmatch(r"[a-fA-F0-9]{64}", normalized_seed):
+                raise LiveTraceInputError("Transaction hash must be 64 hexadecimal characters.")
+            if not normalized_recipient:
+                raise LiveTraceInputError("A transaction-hash seed requires its recipient address.")
+            payment_txid = normalized_seed
+            reported_address = normalized_recipient
+        else:
+            payment_txid = None
+            reported_address = normalized_seed
+        family = detect_chain(reported_address)
+        if family != "TRON":
+            raise LiveTraceInputError(
+                f"{family} live tracing is unavailable; this stage supports TRON mainnet only."
+            )
+        amount_base = parse_amount_base(amount)
+        payment_ts_ms = parse_ist_timestamp(payment_ts_ist)
+        if seed_kind == "address" and payment_ts_ms is None:
+            raise LiveTraceInputError(
+                "An address seed requires the confirmed payment date and time in IST."
+            )
+        params = parse_trace_params(values)
+        ack_no = (case_reference or "").strip()
+        if not ack_no:
+            ack_no = f"LIVE/{now_ms()}/{secrets.token_hex(4).upper()}"
+        if len(ack_no) > 96:
+            raise LiveTraceInputError("Case reference must be 96 characters or fewer.")
+        if session.exec(select(Case).where(Case.ack_no == ack_no)).first():
+            raise LiveTraceInputError("That case reference is already in use.")
+    except LiveTraceInputError as exc:
+        return _live_intake_response(
+            request,
+            user,
+            values=values,
+            error=str(exc),
+            status_code=422,
+        )
+
+    ts = now_ms()
+    case = case_from_complaint(
+        session,
+        {
+            "ack_no": ack_no,
+            "category": "live blockchain trace",
+            "jurisdiction": user["desk"],
+            "filed_ts_ms": ts,
+            "amount_reported_base": amount_base,
+            "asset": {
+                "symbol": "USDT",
+                "contract": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+                "decimals": 6,
+            },
+            "chain": {"family": "TRON", "network": "mainnet"},
+            "reported_address": reported_address,
+            "payment_txid": payment_txid,
+            "victim_payment_ts_ms": payment_ts_ms,
+            "complainant_contact_redacted": None,
+        },
+    )
+    snapshot, finding = get_or_create_trace(
+        session,
+        case,
+        trace_mode="live",
+        params=params,
+    )
+    request.session.pop("risk_case_draft", None)
+    set_active_case(request, case, snapshot, finding, session)
+    record_session_activity(session, request.state.officer_session, trace_run=True)
+    append_audit_event(
+        user["pis"],
+        "trace.start",
+        case.ack_no,
+        {
+            "snapshot_id": snapshot.id,
+            "trace_mode": "live",
+            "seed_kind": seed_kind,
+            "params": snapshot.result_json.get("params"),
+        },
+    )
+    return RedirectResponse(f"/traces/{snapshot.id}", status_code=303)
 
 
 @app.post("/cases/ingest", response_class=HTMLResponse)
@@ -564,8 +1015,9 @@ def start_case(
     if completed != len(particulars):
         raise HTTPException(400, "All complaint particulars must be present before tracing.")
     case = case_from_complaint(session, record)
-    snapshot, finding = get_or_create_trace(session, case)
-    set_active_case(request, case, snapshot, finding)
+    snapshot, finding = get_or_create_trace(session, case, trace_mode="fixture")
+    set_active_case(request, case, snapshot, finding, session)
+    record_session_activity(session, request.state.officer_session, trace_run=True)
     request.session.pop("pending_case_ack", None)
     append_audit_event(user["pis"], "trace.start", case.ack_no, {"snapshot_id": snapshot.id})
     return RedirectResponse(f"/traces/{snapshot.id}", status_code=303)
@@ -583,7 +1035,7 @@ def traces(request: Request, session: Session = Depends(get_session), user: dict
             ).first()
     if not latest:
         case = seed_demo(session)
-        latest, _finding = get_or_create_trace(session, case)
+        latest, _finding = get_or_create_trace(session, case, trace_mode="fixture")
     return RedirectResponse(f"/traces/{latest.id}", status_code=307)
 
 
@@ -599,14 +1051,103 @@ def trace_view(
         raise HTTPException(404)
     case = session.get(Case, snapshot.case_id)
     finding = session.exec(select(Finding).where(Finding.snapshot_id == snapshot.id)).first()
-    if case and finding:
-        set_active_case(request, case, snapshot, finding)
+    if case:
+        set_active_case(request, case, snapshot, finding, session)
     events = session.exec(select(TraceEvent).where(TraceEvent.snapshot_id == snapshot.id).order_by(TraceEvent.seq)).all()
+    runtime_status = snapshot_runtime_status(session, snapshot)
+    template_name = (
+        "live_trace.html"
+        if snapshot.result_json.get("engine", {}).get("mode") == "live"
+        else "trace.html"
+    )
     return templates.TemplateResponse(
         request,
-        "trace.html",
-        {**template_context(request, user), "case": case, "snapshot": snapshot, "finding": finding, "events": events},
+        template_name,
+        {
+            **template_context(request, user),
+            "case": case,
+            "snapshot": snapshot,
+            "finding": finding,
+            "events": events,
+            "runtime_status": runtime_status,
+            "explainability": snapshot_explanation(session, snapshot),
+        },
     )
+
+
+@app.post("/traces/{snapshot_id}/retrace")
+def retrace_snapshot(
+    snapshot_id: int,
+    request: Request,
+    csrf_token: Annotated[str | None, Form()] = None,
+    session: Session = Depends(get_session),
+    user: dict = Depends(session_user),
+) -> Response:
+    require_csrf(request, csrf_token)
+    snapshot = session.get(TraceSnapshot, snapshot_id)
+    if not snapshot:
+        raise HTTPException(404)
+    case = session.get(Case, snapshot.case_id)
+    if not case:
+        raise HTTPException(404)
+    mode = str(snapshot.result_json.get("engine", {}).get("mode") or "fixture")
+    if mode == "live" and not feature_flags()["live_tron_trace"]["enabled"]:
+        raise HTTPException(409, "Live re-tracing is unavailable because its provider gates are unmet.")
+    params = trace_params_from_json(snapshot.result_json.get("params"), trace_mode=mode)
+    prior_exports = read_audit_events(
+        subject=case.ack_no,
+        actions={"artifact.export_manifest", "artifact.export_bundle"},
+    )
+    latest, finding = get_or_create_trace(
+        session,
+        case,
+        trace_mode=mode,
+        params=params,
+        force_new=True,
+    )
+    set_active_case(request, case, latest, finding, session)
+    record_session_activity(
+        session,
+        request.state.officer_session,
+        case_id=case.id,
+        trace_run=True,
+    )
+    append_audit_event(
+        user["pis"],
+        "trace.retrace",
+        case.ack_no,
+        {
+            "previous_snapshot_id": snapshot.id,
+            "snapshot_id": latest.id,
+            "trace_mode": mode,
+            "prior_export_count": len(prior_exports),
+        },
+    )
+    return RedirectResponse(f"/traces/{latest.id}", status_code=303)
+
+
+@app.get("/api/traces/{snapshot_id}/status")
+def trace_runtime_status(
+    snapshot_id: int,
+    session: Session = Depends(get_session),
+    _user: dict = Depends(session_user),
+) -> dict:
+    snapshot = session.get(TraceSnapshot, snapshot_id)
+    if not snapshot:
+        raise HTTPException(404)
+    return snapshot_runtime_status(session, snapshot)
+
+
+@app.get("/api/traces/{snapshot_id}/explanations")
+def trace_explanations(
+    snapshot_id: int,
+    session: Session = Depends(get_session),
+    _user: dict = Depends(session_user),
+) -> dict:
+    snapshot = session.get(TraceSnapshot, snapshot_id)
+    if not snapshot:
+        raise HTTPException(404)
+    return snapshot_explanation(session, snapshot)
 
 
 @app.get("/api/traces/{snapshot_id}/stream")
@@ -639,14 +1180,28 @@ def canvas(
     if not case:
         raise HTTPException(404)
     snap = session.get(TraceSnapshot, snapshot) if snapshot else None
+    if snap and snap.case_id != case.id:
+        raise HTTPException(404)
     if not snap:
         snap = session.exec(select(TraceSnapshot).where(TraceSnapshot.case_id == case_id).order_by(TraceSnapshot.id.desc())).first()
     finding = session.exec(select(Finding).where(Finding.snapshot_id == snap.id)).first() if snap else None
-    set_active_case(request, case, snap, finding)
+    set_active_case(request, case, snap, finding, session)
+    template_name = (
+        "live_canvas.html"
+        if snap and snap.result_json.get("engine", {}).get("mode") == "live"
+        else "canvas.html"
+    )
     return templates.TemplateResponse(
         request,
-        "canvas.html",
-        {**template_context(request, user), "case": case, "snapshot": snap, "view": view},
+        template_name,
+        {
+            **template_context(request, user),
+            "case": case,
+            "snapshot": snap,
+            "view": view,
+            "runtime_status": snapshot_runtime_status(session, snap) if snap else None,
+            "explainability": snapshot_explanation(session, snap) if snap else None,
+        },
     )
 
 
@@ -664,7 +1219,7 @@ def finding_view(
     case = session.get(Case, finding.case_id)
     snapshot = session.get(TraceSnapshot, finding.snapshot_id)
     if case and snapshot:
-        set_active_case(request, case, snapshot, finding)
+        set_active_case(request, case, snapshot, finding, session)
     specs = finding_review_specs()
     review_items = [
         {
@@ -768,6 +1323,18 @@ def notices(
     latest_finding = None
     if active.get("finding_id"):
         latest_finding = session.get(Finding, int(active["finding_id"]))
+    elif active.get("id"):
+        active_snapshot = (
+            session.get(TraceSnapshot, int(active["snapshot_id"]))
+            if active.get("snapshot_id")
+            else session.exec(
+                select(TraceSnapshot)
+                .where(TraceSnapshot.case_id == int(active["id"]))
+                .order_by(TraceSnapshot.id.desc())
+            ).first()
+        )
+        if active_snapshot:
+            return RedirectResponse(f"/traces/{active_snapshot.id}", status_code=307)
     if not latest_finding:
         latest_finding = session.exec(
             select(Finding).order_by(Finding.created_ts_ms.desc(), Finding.id.desc())
@@ -792,7 +1359,7 @@ def notice_view(
     finding = session.get(Finding, notice.finding_id)
     snapshot = session.get(TraceSnapshot, finding.snapshot_id)
     if case and finding and snapshot:
-        set_active_case(request, case, snapshot, finding)
+        set_active_case(request, case, snapshot, finding, session)
     vm = notice_view_model(case.model_dump(), snapshot.result_json, notice.model_dump())
     dispatches = session.exec(
         select(Dispatch).where(Dispatch.notice_id == notice.id).order_by(Dispatch.id)
@@ -825,6 +1392,7 @@ def notice_view(
             "snapshot": snapshot,
             "notice": notice,
             "vm": vm,
+            "methodology_annex": methodology_annex(snapshot.result_json),
             "dispatch_by_channel": dispatch_by_channel,
             "countersigner": countersigner,
         },
@@ -980,17 +1548,118 @@ async def dispatch_notice(
     return RedirectResponse(f"/notices/{notice.id}", status_code=303)
 
 
+def _risk_case_context(session: Session, address: str) -> tuple[list[dict], set[str]]:
+    normalized = address.lower()
+    cases = session.exec(select(Case).order_by(Case.updated_ts_ms.desc(), Case.id.desc())).all()
+    canonical = session.exec(
+        select(CanonicalTraceEvent).order_by(
+            CanonicalTraceEvent.created_ts_ms.desc(),
+            CanonicalTraceEvent.id.desc(),
+        )
+    ).all()
+    refs_by_case: dict[int, list[str]] = {}
+    for row in canonical:
+        if (
+            str(row.source_address or "").lower() == normalized
+            or str(row.destination_address or "").lower() == normalized
+        ):
+            refs_by_case.setdefault(row.case_id, []).append(row.evidence_ref)
+    records: list[dict] = []
+    for case in cases:
+        if case.id is None:
+            continue
+        evidence_refs = list(refs_by_case.get(case.id, []))
+        if case.reported_address.lower() == normalized:
+            evidence_refs.insert(0, f"case:{case.id}:reported_address")
+        if not evidence_refs:
+            continue
+        stage = case.stage.value if hasattr(case.stage, "value") else str(case.stage)
+        records.append(
+            {
+                "reference": case.ack_no,
+                "amount": format_amount(
+                    case.amount_reported_base,
+                    case.asset_decimals,
+                    case.asset_symbol,
+                ),
+                "stage": stage.replace("_", " ").title(),
+                "href": f"/cases/{case.id}/canvas",
+                "retrieval_ts_ms": case.updated_ts_ms,
+                "provenance": "TRINETRA local case and canonical trace records",
+                "evidence_refs": list(dict.fromkeys(evidence_refs)),
+            }
+        )
+    reported = {case.reported_address for case in cases if case.reported_address}
+    return records, reported
+
+
+def _recent_risk_checks() -> list[dict]:
+    rows = read_audit_events(actions={"risk.check"})[-4:]
+    return [
+        {
+            "address": str(row.get("subject") or ""),
+            "label": short_value(str(row.get("subject") or ""), 6, 4),
+            "time": format_ist(row.get("ts_ms")),
+            "tone": {
+                "alert": "alert",
+                "medium": "medium",
+                "low": "success",
+            }.get(str((row.get("data") or {}).get("band")), "muted"),
+        }
+        for row in reversed(rows)
+    ]
+
+
+def _run_risk_lookup(session: Session, address: str, mode: str) -> dict:
+    if mode == "live":
+        local_records, reported_addresses = _risk_case_context(session, address)
+        return live_risk_check(
+            address,
+            evidence_root=settings.var_dir,
+            local_records=local_records,
+            reported_addresses=reported_addresses,
+            lookback_days=max(1, int(getattr(settings, "risk_lookback_days", 30))),
+        )
+    return risk_check(address, notice_state=risk_notice_state(session))
+
+
+def _record_risk_lookup(user: dict, result: dict) -> dict:
+    feature_set = result.get("feature_set") or {}
+    return append_audit_event(
+        user["pis"],
+        "risk.check",
+        result["address"],
+        {
+            "mode": result.get("mode", "fixture"),
+            "band": result["band"],
+            "feature_revision": feature_set.get("schema"),
+            "observed_event_count": feature_set.get("observed_event_count"),
+            "calibration_status": result["calibration_status"],
+            "lookup_ref": result.get("lookup_ref"),
+            "result_sha256": sha256_json(result),
+        },
+    )
+
+
+def _risk_template_context(request: Request, user: dict) -> dict:
+    return {
+        **template_context(request, user),
+        **risk_page_data(_recent_risk_checks()),
+        "live_risk_flag": feature_flags()["live_tron_provider"],
+    }
+
+
 @app.get("/risk-check", response_class=HTMLResponse)
 def risk_page(request: Request, user: dict = Depends(session_user)) -> HTMLResponse:
     return templates.TemplateResponse(
         request,
         "risk.html",
         {
-            **template_context(request, user),
-            **risk_page_data(),
+            **_risk_template_context(request, user),
             "result": None,
             "address": "",
             "risk_error": None,
+            "risk_mode": "fixture",
         },
     )
 
@@ -1011,29 +1680,66 @@ def integrations_page(request: Request, user: dict = Depends(session_user)) -> H
 def run_risk_page(
     request: Request,
     address: Annotated[str, Form()],
+    mode: Annotated[str, Form()] = "fixture",
     session: Session = Depends(get_session),
     user: dict = Depends(session_user),
 ) -> HTMLResponse:
     normalized_address = address.strip()
-    result = (
-        risk_check(normalized_address, notice_state=risk_notice_state(session))
-        if len(normalized_address) >= 26
-        else None
-    )
-    risk_error = None if result else "That does not look like a full address. Paste the complete recipient address."
-    if result:
-        append_audit_event(user["pis"], "risk.check", normalized_address, {"band": result["band"]})
+    normalized_mode = mode if mode in {"fixture", "live"} else "fixture"
+    risk_error = None
+    result = None
+    if len(normalized_address) < 26:
+        risk_error = "That does not look like a full address. Paste the complete recipient address."
+    elif normalized_mode == "live" and not feature_flags()["live_tron_provider"]["enabled"]:
+        live_flag = feature_flags()["live_tron_provider"]
+        missing = ", ".join(str(item) for item in live_flag.get("missing_gates") or [])
+        risk_error = f"Live history is unavailable. Missing: {missing}."
+        append_audit_event(
+            user["pis"],
+            "risk.check_blocked",
+            normalized_address,
+            {"mode": "live", "missing_gates": list(live_flag.get("missing_gates") or [])},
+        )
+    else:
+        result = _run_risk_lookup(session, normalized_address, normalized_mode)
+        _record_risk_lookup(user, result)
     return templates.TemplateResponse(
         request,
         "risk.html",
         {
-            **template_context(request, user),
-            **risk_page_data(),
+            **_risk_template_context(request, user),
             "result": result,
             "address": normalized_address,
             "risk_error": risk_error,
+            "risk_mode": normalized_mode,
         },
     )
+
+
+@app.post("/risk-check/escalate")
+def prepare_risk_case(
+    request: Request,
+    address: Annotated[str, Form()],
+    mode: Annotated[str, Form()] = "fixture",
+    csrf_token: Annotated[str | None, Form()] = None,
+    user: dict = Depends(session_user),
+) -> Response:
+    require_csrf(request, csrf_token)
+    normalized = address.strip()
+    if detect_chain(normalized) != "TRON":
+        raise HTTPException(409, "Only TRON addresses can enter the current live case intake.")
+    source_mode = mode if mode in {"fixture", "live"} else "fixture"
+    request.session["risk_case_draft"] = {
+        "address": normalized,
+        "source_mode": source_mode,
+    }
+    append_audit_event(
+        user["pis"],
+        "risk.prepare_case_intake",
+        normalized,
+        {"source_mode": source_mode, "case_created": False},
+    )
+    return RedirectResponse("/cases/live/new", status_code=303)
 
 
 @app.get("/api/chains/resolve")
@@ -1042,12 +1748,23 @@ def api_chain_resolve(seed: str = Query(...)) -> dict:
 
 
 @app.post("/api/cases/{case_id}/traces")
-def api_create_trace(case_id: int, session: Session = Depends(get_session)) -> dict:
+def api_create_trace(
+    case_id: int,
+    request: Request,
+    session: Session = Depends(get_session),
+    _user: dict = Depends(session_user),
+) -> dict:
     case = session.get(Case, case_id)
     if not case:
         raise HTTPException(404)
     snapshot, finding = get_or_create_trace(session, case)
-    return {"snapshot_id": snapshot.id, "finding_id": finding.id, "sha256": snapshot.sha256}
+    record_session_activity(
+        session,
+        request.state.officer_session,
+        case_id=case_id,
+        trace_run=True,
+    )
+    return {"snapshot_id": snapshot.id, "finding_id": finding.id if finding else None, "sha256": snapshot.sha256}
 
 
 @app.post("/api/traces/{snapshot_id}/continuations")
@@ -1074,8 +1791,9 @@ def api_case_graph(case_id: int, view: str = "trace", session: Session = Depends
 @app.get("/api/cases/{case_id}/evidence-manifest")
 def api_case_evidence_manifest(
     case_id: int,
+    request: Request,
     session: Session = Depends(get_session),
-    _user: dict = Depends(session_user),
+    user: dict = Depends(session_user),
 ) -> dict:
     case = session.get(Case, case_id)
     if not case:
@@ -1098,14 +1816,35 @@ def api_case_evidence_manifest(
         if notice
         else []
     )
-    return evidence_manifest(case, snapshot, finding, notice, dispatches)
+    generated = now_ms()
+    audit_row = append_audit_event(
+        user["pis"],
+        "artifact.export_manifest",
+        case.ack_no,
+        {"case_id": case.id, "snapshot_id": snapshot.id if snapshot else None},
+    )
+    record_session_activity(
+        session,
+        request.state.officer_session,
+        case_id=case.id,
+        artifact_export=True,
+    )
+    return evidence_manifest(
+        case,
+        snapshot,
+        finding,
+        notice,
+        dispatches,
+        artifact_identity(user, generated, audit_row),
+    )
 
 
 @app.get("/api/cases/{case_id}/evidence-bundle.zip")
 def api_case_evidence_bundle(
     case_id: int,
+    request: Request,
     session: Session = Depends(get_session),
-    _user: dict = Depends(session_user),
+    user: dict = Depends(session_user),
 ) -> Response:
     case = session.get(Case, case_id)
     if not case:
@@ -1128,9 +1867,29 @@ def api_case_evidence_bundle(
         if notice
         else []
     )
+    generated = now_ms()
+    audit_row = append_audit_event(
+        user["pis"],
+        "artifact.export_bundle",
+        case.ack_no,
+        {"case_id": case.id, "snapshot_id": snapshot.id if snapshot else None},
+    )
+    record_session_activity(
+        session,
+        request.state.officer_session,
+        case_id=case.id,
+        artifact_export=True,
+    )
     filename = case.ack_no.replace("/", "-") + "-evidence-bundle.zip"
     return Response(
-        evidence_bundle_bytes(case, snapshot, finding, notice, dispatches),
+        evidence_bundle_bytes(
+            case,
+            snapshot,
+            finding,
+            notice,
+            dispatches,
+            artifact_identity(user, generated, audit_row),
+        ),
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
@@ -1147,18 +1906,70 @@ def api_integrations_status(_user: dict = Depends(session_user)) -> dict:
 
 
 @app.post("/api/risk-check")
-def api_risk_check(payload: dict, session: Session = Depends(get_session)) -> dict:
-    return risk_check(payload.get("address", ""), notice_state=risk_notice_state(session))
+def api_risk_check(
+    payload: dict,
+    session: Session = Depends(get_session),
+    user: dict = Depends(session_user),
+) -> dict:
+    address = str(payload.get("address") or "").strip()
+    mode = str(payload.get("mode") or "fixture")
+    if len(address) < 26:
+        raise HTTPException(422, "A complete recipient address is required.")
+    if mode not in {"fixture", "live"}:
+        raise HTTPException(422, "Mode must be fixture or live.")
+    if mode == "live" and not feature_flags()["live_tron_provider"]["enabled"]:
+        live_flag = feature_flags()["live_tron_provider"]
+        missing_gates = list(live_flag.get("missing_gates") or [])
+        append_audit_event(
+            user["pis"],
+            "risk.check_blocked",
+            address,
+            {"mode": "live", "missing_gates": missing_gates},
+        )
+        raise HTTPException(
+            409,
+            {
+                "message": "Live history is unavailable.",
+                "missing_gates": missing_gates,
+            },
+        )
+    result = _run_risk_lookup(session, address, mode)
+    _record_risk_lookup(user, result)
+    return result
 
 
 @app.get("/api/notices/{notice_id}/sahyog-export")
-def api_sahyog_export(notice_id: int, session: Session = Depends(get_session)) -> dict:
+def api_sahyog_export(
+    notice_id: int,
+    request: Request,
+    session: Session = Depends(get_session),
+    user: dict = Depends(session_user),
+) -> dict:
     notice = session.get(Notice, notice_id)
     if not notice:
         raise HTTPException(404)
     finding = session.get(Finding, notice.finding_id)
+    if not finding:
+        raise HTTPException(404, "Finding not found for notice.")
     snapshot = session.get(TraceSnapshot, finding.snapshot_id)
-    return sahyog_manifest(snapshot.result_json, notice.notice_no)
+    if not snapshot:
+        raise HTTPException(404, "Trace snapshot not found for notice.")
+    generated = now_ms()
+    audit_row = append_audit_event(
+        user["pis"],
+        "artifact.export_sahyog_specimen",
+        notice.notice_no,
+        {"notice_id": notice.id, "snapshot_id": snapshot.id},
+    )
+    record_session_activity(
+        session,
+        request.state.officer_session,
+        case_id=notice.case_id,
+        artifact_export=True,
+    )
+    result = sahyog_manifest(snapshot.result_json, notice.notice_no)
+    result["artifact"] = artifact_identity(user, generated, audit_row)
+    return result
 
 
 @app.get("/api/webauthn/register/options")
@@ -1167,8 +1978,27 @@ def webauthn_options(request: Request, user: dict = Depends(session_user)) -> di
 
 
 @app.post("/api/webauthn/register/verify")
-def webauthn_verify(payload: dict, _user: dict = Depends(session_user)) -> dict:
-    return verify_registration(payload)
+def webauthn_verify(
+    payload: dict,
+    request: Request,
+    session: Session = Depends(get_session),
+    user: dict = Depends(session_user),
+) -> dict:
+    result = verify_registration(payload)
+    if result.get("verified") is True:
+        rows = revoke_all_officer_sessions(
+            session,
+            user["pis"],
+            reason="credential_change",
+        )
+        append_audit_event(
+            user["pis"],
+            "session.revoke_after_credential_change",
+            f"officer:{user['pis']}",
+            {"session_ids": [row.id for row in rows]},
+        )
+        request.session.clear()
+    return result
 
 
 @app.get("/api/exhibits/{snapshot_id}.svg")
