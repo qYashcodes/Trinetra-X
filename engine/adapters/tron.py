@@ -172,6 +172,64 @@ def verify_seed_transfer(
     return matches[0]
 
 
+def resolve_usdt_transfer(
+    txid: str,
+    *,
+    contract_address: str = TRON_MAINNET_USDT,
+    session: Any | None = None,
+    config: TronGridConfig | None = None,
+) -> dict[str, Any]:
+    events = fetch_transaction_events(txid, session=session, config=config)
+    candidates = [
+        event
+        for event in events
+        if str(event.get("event_name") or event.get("event") or "").lower() == "transfer"
+        and _event_contract(event) == contract_address
+    ]
+    if not candidates:
+        raise ProviderResponseError(
+            "No confirmed TRON USDT Transfer event found for the supplied transaction hash."
+        )
+    event = candidates[0]
+    source = _event_sender(event)
+    recipient = _event_recipient(event)
+    amount_base = _event_amount(event)
+    timestamp = _first_present(event, "block_timestamp", "block_ts")
+    if not source or not recipient:
+        raise ProviderSchemaDriftError(
+            "TronGrid Transfer event is missing sender or recipient.",
+            error_kind="schema_drift",
+        )
+    if amount_base is None or amount_base <= 0:
+        raise ProviderResponseError("The confirmed USDT Transfer amount is not positive.")
+    if timestamp is None:
+        raise ProviderSchemaDriftError(
+            "TronGrid Transfer event is missing block timestamp.",
+            error_kind="schema_drift",
+        )
+    try:
+        timestamp_ms = int(timestamp)
+    except (TypeError, ValueError) as exc:
+        raise ProviderSchemaDriftError(
+            "TronGrid Transfer event has invalid block timestamp.",
+            error_kind="schema_drift",
+        ) from exc
+    return {
+        "txid": str(event.get("transaction_id") or txid),
+        "source": source,
+        "destination": recipient,
+        "amount_base": amount_base,
+        "ts_ms": timestamp_ms,
+        "contract": contract_address,
+        "decimals": 6,
+        "block": _first_present(event, "block_number", "block"),
+        "event_index": _first_present(event, "event_index", "log_index"),
+        "retrieval_ts_ms": event.get("_retrieval_ts_ms"),
+        "raw_sha256": event.get("_raw_sha256"),
+        "provider_request_ref": event.get("_provider_request_ref"),
+    }
+
+
 def _paginate(http: Any, cfg: TronGridConfig, path: str, params: dict[str, Any]) -> list[dict]:
     rows: list[dict] = []
     seen_fingerprints: set[str] = set()
@@ -469,6 +527,12 @@ def _event_contract(event: dict) -> str | None:
 def _event_recipient(event: dict) -> str | None:
     result = event.get("result") or {}
     value = event.get("to") or event.get("to_address") or result.get("to")
+    return _canonical_tron_address(value)
+
+
+def _event_sender(event: dict) -> str | None:
+    result = event.get("result") or {}
+    value = event.get("from") or event.get("from_address") or result.get("from")
     return _canonical_tron_address(value)
 
 

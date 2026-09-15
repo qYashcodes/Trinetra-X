@@ -466,6 +466,21 @@ def test_live_intake_route_mode_banner_status_and_retrace(
     app.dependency_overrides[main_module.get_session] = session_override
     monkeypatch.setattr(main_module, "append_audit_event", lambda *args, **kwargs: {})
     monkeypatch.setattr(main_module, "read_audit_events", lambda **_kwargs: [])
+    monkeypatch.setattr(
+        tron,
+        "resolve_usdt_transfer",
+        lambda _txid: {
+            "txid": SEED_TXID,
+            "source": "TSender11111111111111111111111111111",
+            "destination": SEED_ADDRESS,
+            "amount_base": SEED_AMOUNT,
+            "ts_ms": SEED_TS,
+            "contract": tron.TRON_MAINNET_USDT,
+            "decimals": 6,
+            "block": 123,
+            "event_index": 0,
+        },
+    )
     monkeypatch.setattr(tron, "verify_seed_transfer", lambda **_kwargs: {"event_name": "Transfer"})
     monkeypatch.setattr(tron, "fetch_trc20_transfers", fake_fetch)
     try:
@@ -482,8 +497,6 @@ def test_live_intake_route_mode_banner_status_and_retrace(
                     "csrf_token": token.group(1),
                     "seed_kind": "txid",
                     "seed_value": SEED_TXID,
-                    "recipient_address": SEED_ADDRESS,
-                    "amount": "1.000000",
                     "max_depth": "1",
                     "time_window_hours": "8",
                     "value_floor_share": "0.02",
@@ -513,6 +526,11 @@ def test_live_intake_route_mode_banner_status_and_retrace(
                 live_snapshot = session.get(TraceSnapshot, snapshot_id)
                 assert live_snapshot
                 live_case_id = live_snapshot.case_id
+                live_case = session.get(Case, live_case_id)
+                assert live_case.payment_txid == SEED_TXID
+                assert live_case.reported_address == SEED_ADDRESS
+                assert live_case.amount_reported_base == SEED_AMOUNT
+                assert live_case.payment_ts_ms == SEED_TS
             mismatched_canvas = client.get(f"/cases/1/canvas?snapshot={snapshot_id}")
             assert mismatched_canvas.status_code == 404
             canvas = client.get(f"/cases/{live_case_id}/canvas?snapshot={snapshot_id}")
@@ -540,6 +558,104 @@ def test_live_intake_route_mode_banner_status_and_retrace(
                 ).all()
                 assert len(snapshots) == 2
                 assert snapshots[0].superseded_by_id == snapshots[1].id
+    finally:
+        app.dependency_overrides.clear()
+        engine.dispose()
+
+
+def test_live_txid_intake_rejects_bad_hash_before_provider_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _enable_live(monkeypatch)
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+
+    def session_override():
+        with Session(engine) as session:
+            yield session
+
+    def forbidden_resolver(_txid: str):
+        raise AssertionError("Provider resolver should not be called for malformed txid")
+
+    app.dependency_overrides[main_module.get_session] = session_override
+    monkeypatch.setattr(main_module, "append_audit_event", lambda *args, **kwargs: {})
+    monkeypatch.setattr(tron, "resolve_usdt_transfer", forbidden_resolver)
+    try:
+        with TestClient(app) as client:
+            assert client.post("/auth/prototype", data={"role": "io"}).status_code == 200
+            intake = client.get("/cases/live/new")
+            token = re.search(r'name="csrf_token" value="([^"]+)"', intake.text)
+            assert token
+            response = client.post(
+                "/cases/live/start",
+                data={
+                    "csrf_token": token.group(1),
+                    "seed_kind": "txid",
+                    "seed_value": "not-a-real-hash",
+                    "max_depth": "1",
+                    "time_window_hours": "8",
+                    "value_floor_share": "0.02",
+                    "breadth_cap": "3",
+                    "address_budget": "60",
+                    "strategy": "dominant_fund_flow",
+                },
+            )
+
+            assert response.status_code == 422
+            assert "Transaction hash must be 64 hexadecimal characters." in response.text
+    finally:
+        app.dependency_overrides.clear()
+        engine.dispose()
+
+
+def test_live_txid_intake_surfaces_provider_resolution_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _enable_live(monkeypatch)
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+
+    def session_override():
+        with Session(engine) as session:
+            yield session
+
+    def failing_resolver(_txid: str):
+        raise tron.ProviderResponseError("No confirmed TRON USDT Transfer event found.")
+
+    app.dependency_overrides[main_module.get_session] = session_override
+    monkeypatch.setattr(main_module, "append_audit_event", lambda *args, **kwargs: {})
+    monkeypatch.setattr(tron, "resolve_usdt_transfer", failing_resolver)
+    try:
+        with TestClient(app) as client:
+            assert client.post("/auth/prototype", data={"role": "io"}).status_code == 200
+            intake = client.get("/cases/live/new")
+            token = re.search(r'name="csrf_token" value="([^"]+)"', intake.text)
+            assert token
+            response = client.post(
+                "/cases/live/start",
+                data={
+                    "csrf_token": token.group(1),
+                    "seed_kind": "txid",
+                    "seed_value": "a" * 64,
+                    "max_depth": "1",
+                    "time_window_hours": "8",
+                    "value_floor_share": "0.02",
+                    "breadth_cap": "3",
+                    "address_budget": "60",
+                    "strategy": "dominant_fund_flow",
+                },
+            )
+
+            assert response.status_code == 422
+            assert "No confirmed TRON USDT Transfer event found." in response.text
     finally:
         app.dependency_overrides.clear()
         engine.dispose()

@@ -22,6 +22,8 @@ try:
 except Exception:  # pragma: no cover - import guard for partial installs
     EventSourceResponse = None
 
+from engine.adapters import tron
+
 from app.db import engine, get_session, init_db
 from app.docket_fixture import docket_fixture
 from app.engine_bridge import (
@@ -136,6 +138,11 @@ templates.env.filters["ist"] = format_ist
 
 def format_amount_number(amount_base: int, decimals: int = 6) -> str:
     return format_amount(amount_base, decimals, "").strip()
+
+
+def _format_usdt_decimal(amount_base: int) -> str:
+    whole, fraction = divmod(int(amount_base), 1_000_000)
+    return f"{whole}.{fraction:06d}"
 
 
 templates.env.filters["amount_number"] = format_amount_number
@@ -822,9 +829,10 @@ def new_live_case(request: Request, user: dict = Depends(session_user)) -> HTMLR
 def start_live_case(
     request: Request,
     seed_kind: Annotated[str, Form()],
-    seed_value: Annotated[str, Form()],
-    amount: Annotated[str, Form()],
+    seed_value: Annotated[str | None, Form()] = None,
+    amount: Annotated[str | None, Form()] = None,
     csrf_token: Annotated[str | None, Form()] = None,
+    address_seed_value: Annotated[str | None, Form()] = None,
     recipient_address: Annotated[str | None, Form()] = None,
     payment_ts_ist: Annotated[str | None, Form()] = None,
     case_reference: Annotated[str | None, Form()] = None,
@@ -841,9 +849,10 @@ def start_live_case(
     require_csrf(request, csrf_token)
     values = {
         "seed_kind": seed_kind,
-        "seed_value": seed_value,
+        "seed_value": seed_value or "",
+        "address_seed_value": address_seed_value or "",
         "recipient_address": recipient_address or "",
-        "amount": amount,
+        "amount": amount or "",
         "payment_ts_ist": payment_ts_ist or "",
         "case_reference": case_reference or "",
         "max_depth": max_depth,
@@ -868,28 +877,45 @@ def start_live_case(
     try:
         if seed_kind not in {"address", "txid"}:
             raise LiveTraceInputError("Select address or transaction hash as the seed type.")
-        normalized_seed = seed_value.strip()
-        normalized_recipient = (recipient_address or "").strip()
+        normalized_seed = (seed_value or "").strip()
+        if not normalized_seed and seed_kind == "txid":
+            raise LiveTraceInputError("Enter a transaction hash.")
         if seed_kind == "txid":
             if not re.fullmatch(r"[a-fA-F0-9]{64}", normalized_seed):
                 raise LiveTraceInputError("Transaction hash must be 64 hexadecimal characters.")
-            if not normalized_recipient:
-                raise LiveTraceInputError("A transaction-hash seed requires its recipient address.")
-            payment_txid = normalized_seed
-            reported_address = normalized_recipient
+            try:
+                resolved = tron.resolve_usdt_transfer(normalized_seed)
+            except tron.ProviderConfigurationError as exc:
+                raise LiveTraceInputError(str(exc)) from exc
+            except tron.ProviderResponseError as exc:
+                raise LiveTraceInputError(str(exc)) from exc
+            payment_txid = str(resolved["txid"])
+            reported_address = str(resolved["destination"])
+            amount_base = int(resolved["amount_base"])
+            payment_ts_ms = int(resolved["ts_ms"])
+            values["seed_value"] = payment_txid
+            values["recipient_address"] = reported_address
+            values["amount"] = _format_usdt_decimal(amount_base)
+            values["payment_ts_ist"] = ""
         else:
             payment_txid = None
-            reported_address = normalized_seed
+            reported_address = (address_seed_value or normalized_seed).strip()
+            if not reported_address:
+                raise LiveTraceInputError("Enter a TRON address.")
+            if not amount:
+                raise LiveTraceInputError("An address seed requires the confirmed USDT amount.")
+            amount_base = parse_amount_base(amount)
+            payment_ts_ms = parse_ist_timestamp(payment_ts_ist)
+            if payment_ts_ms is None:
+                raise LiveTraceInputError(
+                    "An address seed requires the confirmed payment date and time in IST."
+                )
+            values["seed_value"] = reported_address
+            values["address_seed_value"] = reported_address
         family = detect_chain(reported_address)
         if family != "TRON":
             raise LiveTraceInputError(
                 f"{family} live tracing is unavailable; this stage supports TRON mainnet only."
-            )
-        amount_base = parse_amount_base(amount)
-        payment_ts_ms = parse_ist_timestamp(payment_ts_ist)
-        if seed_kind == "address" and payment_ts_ms is None:
-            raise LiveTraceInputError(
-                "An address seed requires the confirmed payment date and time in IST."
             )
         params = parse_trace_params(values)
         ack_no = (case_reference or "").strip()
@@ -946,6 +972,7 @@ def start_live_case(
             "snapshot_id": snapshot.id,
             "trace_mode": "live",
             "seed_kind": seed_kind,
+            "transaction_resolved": seed_kind == "txid",
             "params": snapshot.result_json.get("params"),
         },
     )

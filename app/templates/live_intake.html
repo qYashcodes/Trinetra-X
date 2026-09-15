@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Live trace intake · TRINETRA{% endblock %}
+{% block title %}Live trace intake - TRINETRA{% endblock %}
 {% block page_styles %}<link rel="stylesheet" href="/static/live.css">{% endblock %}
 
 {% block breadcrumb %}<div class="breadcrumb"><span>Home</span><b>/</b><span>Case intake</span><b>/</b><strong>Live provider trace</strong></div>{% endblock %}
@@ -8,18 +8,35 @@
 <section class="live-intake">
   <div class="trace-mode-control" aria-label="Trace data mode"><a href="/cases/new">Controlled fixture</a><a class="active live" href="/cases/live/new" aria-current="page">Live provider</a></div>
   <div class="trace-mode-banner live" role="status"><strong>LIVE PROVIDER MODE</strong><span>Requests use configured TRON providers. A live trace does not create custody attribution without separate certified evidence.</span></div>
-  <header class="live-intake-heading"><div><span>Separate live workflow</span><h1>Start a bounded TRON/USDT trace</h1><p>Anchor the trace with either an exact transaction hash or an address, amount and confirmed payment time.</p></div><span class="live-readiness {{ 'ready' if live_flag.enabled else 'blocked' }}"><i></i>{{ 'Available' if live_flag.enabled else 'Unavailable' }}</span></header>
+  <header class="live-intake-heading"><div><span>Separate live workflow</span><h1>Start a bounded TRON/USDT trace</h1><p>Paste a confirmed transaction hash, or switch to address mode for manual seed details.</p></div><span class="live-readiness {{ 'ready' if live_flag.enabled else 'blocked' }}"><i></i>{{ 'Available' if live_flag.enabled else 'Unavailable' }}</span></header>
 
   {% if intake_error %}<div class="live-form-error" role="alert">{{ intake_error }}</div>{% endif %}
   {% if not live_flag.enabled %}<section class="live-gates" aria-label="Missing live gates"><h2>Live tracing cannot be selected</h2><p>{{ live_flag.blocked_reason }}</p>{% if live_flag.missing_gates %}<ul>{% for gate in live_flag.missing_gates %}<li class="mono">{{ gate }}</li>{% endfor %}</ul>{% endif %}</section>{% endif %}
 
-  <form method="post" action="/cases/live/start" class="live-intake-form">
+  <form method="post" action="/cases/live/start" class="live-intake-form" data-live-intake-form>
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <section class="live-form-band">
-      <header><span>1</span><div><h2>Confirmed transfer anchor</h2><p>The engine must resolve one exact confirmed USDT transfer before traversal.</p></div></header>
-      <fieldset class="seed-kind-control"><legend>Seed type</legend><label><input type="radio" name="seed_kind" value="txid"{{ ' checked' if values.get('seed_kind', 'txid') == 'txid' else '' }}><span>Transaction hash</span></label><label><input type="radio" name="seed_kind" value="address"{{ ' checked' if values.get('seed_kind') == 'address' else '' }}><span>Address</span></label></fieldset>
-      <div class="live-fields two"><label><span>Seed value</span><input class="mono" name="seed_value" required value="{{ values.get('seed_value', '') }}" placeholder="64-character txid or TRON address"></label><label><span>Recipient address for txid seed</span><input class="mono" name="recipient_address" value="{{ values.get('recipient_address', '') }}" placeholder="T..."></label></div>
-      <div class="live-fields three"><label><span>Amount (USDT)</span><input class="mono" name="amount" inputmode="decimal" required value="{{ values.get('amount', '') }}" placeholder="2858.661660"></label><label><span>Confirmed payment time (IST)</span><input class="mono" type="datetime-local" step="1" name="payment_ts_ist" value="{{ values.get('payment_ts_ist', '') }}"></label><label><span>Case reference</span><input class="mono" name="case_reference" maxlength="96" value="{{ values.get('case_reference', '') }}" placeholder="Generated when blank"></label></div>
+      <header><span>1</span><div><h2>Confirmed transfer anchor</h2><p>The tx hash path resolves the USDT recipient, amount and block time automatically.</p></div></header>
+      <fieldset class="seed-kind-control"><legend>Seed type</legend><label><input type="radio" name="seed_kind" value="txid"{{ ' checked' if values.get('seed_kind', 'txid') == 'txid' else '' }} data-seed-kind><span>Transaction hash</span></label><label><input type="radio" name="seed_kind" value="address"{{ ' checked' if values.get('seed_kind') == 'address' else '' }} data-seed-kind><span>Address</span></label></fieldset>
+
+      <div class="live-fields txid-fields" data-txid-fields>
+        <label><span>Transaction hash</span><input class="mono" name="seed_value" data-txid-input value="{{ values.get('seed_value', '') }}" placeholder="64-character TRON transaction hash"><small>TRINETRA resolves the confirmed USDT transfer before traversal.</small></label>
+      </div>
+
+      <div class="address-fields" data-address-fields hidden>
+        <div class="live-fields two">
+          <label><span>Seed address</span><input class="mono" name="address_seed_value" data-address-input value="{{ values.get('address_seed_value') or values.get('seed_value', '') }}" placeholder="TRON address"></label>
+          <label><span>Recipient address</span><input class="mono" name="recipient_address" value="{{ values.get('recipient_address', '') }}" placeholder="T..."></label>
+        </div>
+        <div class="live-fields two">
+          <label><span>Amount (USDT)</span><input class="mono" name="amount" inputmode="decimal" data-address-required value="{{ values.get('amount', '') }}" placeholder="2858.661660"></label>
+          <label><span>Confirmed payment time (IST)</span><input class="mono" type="datetime-local" step="1" name="payment_ts_ist" data-address-required value="{{ values.get('payment_ts_ist', '') }}"></label>
+        </div>
+      </div>
+
+      <div class="live-fields one">
+        <label><span>Case reference</span><input class="mono" name="case_reference" maxlength="96" value="{{ values.get('case_reference', '') }}" placeholder="Generated when blank"></label>
+      </div>
     </section>
 
     <section class="live-form-band">
@@ -37,4 +54,36 @@
     <footer class="live-form-actions"><a href="/cases/new">Return to fixture intake</a><button type="submit"{{ ' disabled' if not live_flag.enabled else '' }}>Start live trace</button></footer>
   </form>
 </section>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const form = document.querySelector("[data-live-intake-form]");
+  if (!form) return;
+  const txidFields = form.querySelector("[data-txid-fields]");
+  const addressFields = form.querySelector("[data-address-fields]");
+  const txidInput = form.querySelector("[data-txid-input]");
+  const addressInput = form.querySelector("[data-address-input]");
+  const addressRequired = form.querySelectorAll("[data-address-required]");
+
+  function syncMode() {
+    const mode = form.querySelector("input[name='seed_kind']:checked")?.value || "txid";
+    const txidMode = mode === "txid";
+    txidFields.hidden = !txidMode;
+    addressFields.hidden = txidMode;
+    txidInput.disabled = !txidMode;
+    txidInput.required = txidMode;
+    addressInput.disabled = txidMode;
+    addressInput.required = !txidMode;
+    addressRequired.forEach((input) => {
+      input.disabled = txidMode;
+      input.required = !txidMode;
+    });
+  }
+
+  form.querySelectorAll("[data-seed-kind]").forEach((input) => {
+    input.addEventListener("change", syncMode);
+  });
+  syncMode();
+});
+</script>
 {% endblock %}

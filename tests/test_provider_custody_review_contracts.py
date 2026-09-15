@@ -50,6 +50,7 @@ from engine.adapters.tron import (
     TronGridConfig,
     fetch_trc20_transfers,
     normalise,
+    resolve_usdt_transfer,
     verify_seed_transfer,
 )
 
@@ -231,6 +232,79 @@ def test_seed_transfer_verifies_exact_recipient_amount_and_contract() -> None:
     )
 
     assert event["event_name"] == "Transfer"
+
+
+def test_resolve_usdt_transfer_from_confirmed_event_normalizes_hex_addresses() -> None:
+    fake = FakeSession(
+        [
+            FakeResponse(
+                200,
+                {
+                    "success": True,
+                    "data": [
+                        {
+                            "event_name": "Transfer",
+                            "contract_address": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+                            "block_number": 84308492,
+                            "block_timestamp": 1783595430000,
+                            "event_index": 0,
+                            "transaction_id": "b3" * 32,
+                            "result": {
+                                "from": "0x579e933f76f64d5383f3856b1ead4903c7d08541",
+                                "to": "0x96e74e1cd5edecfc7f90372b024e092d2b2eb644",
+                                "value": "149900000",
+                            },
+                        }
+                    ],
+                },
+            )
+        ]
+    )
+
+    transfer = resolve_usdt_transfer(
+        "b3" * 32,
+        session=fake,
+        config=TronGridConfig(base_url="https://api.trongrid.io", api_key="key"),
+    )
+
+    assert transfer["source"] == "THxVkkBoYUdYCZgtqgeRZHReUhShRBUzwM"
+    assert transfer["destination"] == "TPj7TCJ9rxdd243yQ3tc7iJzqcEYtupB4v"
+    assert transfer["amount_base"] == 149_900_000
+    assert transfer["ts_ms"] == 1_783_595_430_000
+    assert transfer["block"] == 84_308_492
+    assert transfer["event_index"] == 0
+
+
+def test_resolve_usdt_transfer_rejects_non_usdt_transaction() -> None:
+    fake = FakeSession(
+        [
+            FakeResponse(
+                200,
+                {
+                    "success": True,
+                    "data": [
+                        {
+                            "event_name": "Transfer",
+                            "contract_address": "TNotUsdtContract",
+                            "block_timestamp": 1783595430000,
+                            "result": {
+                                "from": "TSource",
+                                "to": "TDestination",
+                                "value": "149900000",
+                            },
+                        }
+                    ],
+                },
+            )
+        ]
+    )
+
+    with pytest.raises(ProviderResponseError, match="No confirmed TRON USDT"):
+        resolve_usdt_transfer(
+            "b3" * 32,
+            session=fake,
+            config=TronGridConfig(base_url="https://api.trongrid.io", api_key="key"),
+        )
 
 
 def test_tron_normalise_requires_core_fields() -> None:

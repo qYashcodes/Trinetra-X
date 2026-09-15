@@ -94,6 +94,23 @@ def test_proportional_allocation_carries_rounding_residual() -> None:
     assert second.remaining_attributed_base == 0
 
 
+def test_full_balance_spend_receives_remaining_attribution_despite_old_residual() -> None:
+    first = allocate_proportional(balance_base=100, attributed_base=1, outgoing_base=99)
+    second = allocate_proportional(
+        balance_base=first.remaining_balance_base,
+        attributed_base=first.remaining_attributed_base,
+        outgoing_base=first.remaining_balance_base,
+        residual_numerator=first.residual_numerator,
+    )
+
+    assert first.outgoing_attributed_base == 0
+    assert first.residual_numerator == 99
+    assert second.outgoing_attributed_base == 1
+    assert second.remaining_balance_base == 0
+    assert second.remaining_attributed_base == 0
+    assert second.residual_numerator == 0
+
+
 @pytest.mark.parametrize(
     "kwargs",
     [

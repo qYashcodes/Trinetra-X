@@ -39,6 +39,14 @@ def allocate_proportional(
     if outgoing_base > balance_base:
         raise AllocationError("Outgoing amount cannot exceed spendable balance.")
 
+    if outgoing_base == balance_base:
+        return AllocationStep(
+            outgoing_attributed_base=attributed_base,
+            remaining_balance_base=0,
+            remaining_attributed_base=0,
+            residual_numerator=0,
+        )
+
     numerator = outgoing_base * attributed_base + residual_numerator
     outgoing_attributed_base = numerator // balance_base
     next_residual = numerator % balance_base
