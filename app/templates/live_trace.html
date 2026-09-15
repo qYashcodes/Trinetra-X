@@ -1,0 +1,219 @@
+{% extends "base.html" %}
+{% block title %}Live trace - TRINETRA{% endblock %}
+{% block page_styles %}<link rel="stylesheet" href="/static/live.css"><link rel="stylesheet" href="/static/explainability.css">{% endblock %}
+{% block page_scripts %}<script defer src="/static/live-trace.js"></script><script defer src="/static/explainability.js"></script>{% endblock %}
+
+{% block breadcrumb %}<div class="breadcrumb"><span>Investigations</span><b>/</b><strong class="mono">{{ case.ack_no }}</strong></div>{% endblock %}
+{% block content %}
+{% set result = snapshot.result_json %}
+{% set terminal = result.terminal %}
+{% set params = result.params %}
+{% set stop = runtime_status.stop_summary %}
+{% set provider = runtime_status.provider_evidence %}
+{% set projection = runtime_status.behavioral_projection %}
+<section class="live-trace-screen" data-live-runtime data-status-url="/api/traces/{{ snapshot.id }}/status">
+  {% include "_trace_mode_banner.html" %}
+
+  <header class="live-trace-heading">
+    <div>
+      <span>Snapshot {{ snapshot.id }} - {{ snapshot.status | labelize }}</span>
+      <h1>Live TRON fund-flow trace</h1>
+      <p class="mono">{{ case.reported_address }}</p>
+    </div>
+    <span class="terminal-chip {{ stop.tone }}">
+      <b>{{ stop.label }}</b>
+      <small>Terminal: {{ stop.terminal_label }}</small>
+    </span>
+  </header>
+
+  <div class="freshness-strip {{ 'stale' if runtime_status.data_freshness.stale else '' }}" data-freshness-strip data-explain-target="seed" role="button" tabindex="0">
+    <span>
+      <i></i>
+      <b>{% if runtime_status.data_freshness.chain_data_as_of_ms %}Chain data as of {{ runtime_status.data_freshness.chain_data_as_of_ms | ist }}{% else %}No provider response timestamp recorded{% endif %}</b>
+    </span>
+    <em data-freshness-state>{{ 'Refresh recommended' if runtime_status.data_freshness.stale else 'Within configured freshness window' }}</em>
+  </div>
+
+  <div class="live-trace-layout">
+    <aside class="live-bounds" aria-label="Sealed traversal bounds" data-explain-target="methodology" role="button" tabindex="0">
+      <h2>Sealed bounds</h2>
+      <dl>
+        <div><dt>Depth</dt><dd class="mono">{{ params.max_depth }}</dd></div>
+        <div><dt>Window</dt><dd class="mono">{{ params.time_window_hours }} h</dd></div>
+        <div><dt>Value floor</dt><dd class="mono">{{ params.value_floor_share }}</dd></div>
+        <div><dt>Branch cap</dt><dd class="mono">{{ params.breadth_cap }}</dd></div>
+        <div><dt>Address budget</dt><dd class="mono">{{ params.address_budget }}</dd></div>
+        <div><dt>Strategy</dt><dd>{{ params.strategy | labelize }}</dd></div>
+      </dl>
+      <p>These limits define what this snapshot searched. Deferred edges remain recorded.</p>
+    </aside>
+
+    <main class="live-hop-ledger">
+      <header>
+        <div>
+          <h2>Resolved confirmed transfers</h2>
+          <p>Only confirmed events participate in integer attribution.</p>
+        </div>
+        <span class="mono">{{ result.hops | length }} hops</span>
+      </header>
+      {% if result.hops %}
+      <ol>
+        {% for hop in result.hops %}
+        {% set read_ts = hop.retrieval_ts_ms or runtime_status.data_freshness.chain_data_as_of_ms %}
+        {% set read_stale = read_ts and read_ts < runtime_status.data_freshness.stale_cutoff_ms %}
+        <li class="{{ 'stale-node' if read_stale else '' }}" data-explain-target="hop:{{ loop.index0 }}" role="button" tabindex="0">
+          <span class="hop-index mono">H{{ hop.hop }}</span>
+          <div>
+            <strong class="mono">{{ hop.address }}</strong>
+            <small>From <span class="mono">{{ hop.source_address }}</span></small>
+          </div>
+          <div class="hop-value">
+            <b class="mono">{{ hop.value_base | amount }}</b>
+            <small>{{ hop.frontier_state | labelize }} - {{ hop.ts_ms | ist }}</small>
+          </div>
+          <time class="mono">{% if read_ts %}Read {{ read_ts | ist }}{{ ' - stale' if read_stale else '' }}{% else %}Retrieval time unavailable{% endif %}</time>
+        </li>
+        {% endfor %}
+      </ol>
+      {% else %}
+      <div class="empty-ledger">
+        <strong>No onward confirmed hop was attributed.</strong>
+        <p>{{ terminal.note }}</p>
+      </div>
+      {% endif %}
+    </main>
+
+    <aside class="live-runtime-panel" data-explain-target="methodology" role="button" tabindex="0">
+      <h2>Frontier state</h2>
+      <dl class="runtime-counts">
+        <div><dt>Queued</dt><dd data-count="queued">{{ runtime_status.frontier_counts.queued }}</dd></div>
+        <div><dt>Working</dt><dd data-count="leased">{{ runtime_status.frontier_counts.leased }}</dd></div>
+        <div><dt>Deferred</dt><dd data-count="deferred">{{ runtime_status.frontier_counts.deferred }}</dd></div>
+        <div><dt>Completed</dt><dd data-count="completed">{{ runtime_status.frontier_counts.completed }}</dd></div>
+      </dl>
+      <div data-backoff-list>
+        {% for item in runtime_status.provider_backoff %}
+        <article class="provider-backoff" data-retry-at="{{ item.next_retry_ts_ms or '' }}">
+          <strong>{{ item.provider | default('Provider', true) | upper }} paused this branch</strong>
+          <span>{{ item.deferral_label }}</span>
+          <small class="mono">Retry <b data-countdown>pending</b></small>
+        </article>
+        {% endfor %}
+      </div>
+      <h3>Recorded deferrals</h3>
+      <ul class="deferral-list">
+        {% for item in runtime_status.frontier if item.deferral_reason and item.deferral_reason != 'provider_backoff' %}
+        <li><span>{{ item.deferral_label }}</span><small class="mono">{{ item.address | short }}</small></li>
+        {% else %}
+        <li class="muted">No additional non-provider deferrals.</li>
+        {% endfor %}
+      </ul>
+    </aside>
+  </div>
+
+  <section class="live-demo-grid">
+    <article class="live-proof-panel" data-explain-target="seed" role="button" tabindex="0">
+      <header><span>Provider proof</span><h2>What was verified</h2></header>
+      <dl>
+        <div><dt>Provider</dt><dd>{{ provider.providers | join(', ') if provider.providers else 'Recorded provider unavailable' }}</dd></div>
+        <div><dt>Canonical events</dt><dd class="mono">{{ provider.canonical_event_count }}</dd></div>
+        <div><dt>Coverage rows</dt><dd class="mono">{{ provider.coverage_count }}</dd></div>
+        <div><dt>Raw evidence hashes</dt><dd class="mono">{{ provider.raw_hash_count }}</dd></div>
+        <div><dt>Gaps / conflicts</dt><dd class="mono">{{ provider.gap_count }} / {{ provider.conflict_count }}</dd></div>
+        <div><dt>Latest read</dt><dd class="mono">{% if provider.latest_retrieval_ts_ms %}{{ provider.latest_retrieval_ts_ms | ist }}{% else %}not recorded{% endif %}</dd></div>
+      </dl>
+      <div class="proof-refs">
+        {% for ref in provider.request_refs %}
+        <code>{{ ref }}</code>
+        {% else %}
+        <span>No provider request references were retained for this view.</span>
+        {% endfor %}
+      </div>
+    </article>
+
+    <article class="live-behaviour-panel">
+      <header><span>Projected classification</span><h2>{{ projection.label }}</h2></header>
+      <p class="projection-disclaimer">({{ projection.disclaimer }})</p>
+      <dl class="projection-stats">
+        <div><dt>Observed events</dt><dd class="mono">{{ projection.event_count }}</dd></div>
+        <div><dt>Inbound</dt><dd class="mono">{{ projection.inbound_event_count }}</dd></div>
+        <div><dt>Outbound</dt><dd class="mono">{{ projection.outbound_event_count }}</dd></div>
+      </dl>
+      <ul class="projection-tags">
+        {% for item in projection.observed_classes %}
+        <li>{{ item }}</li>
+        {% else %}
+        <li>Unknown</li>
+        {% endfor %}
+      </ul>
+      {% if projection.insufficiency_reasons %}
+      <ul class="projection-notes">
+        {% for reason in projection.insufficiency_reasons %}<li>{{ reason }}</li>{% endfor %}
+      </ul>
+      {% endif %}
+      <div class="feature-strip" aria-label="Behavioural feature summaries">
+        {% for feature in projection.features[:6] %}
+        <section>
+          <strong>{{ feature.label }}</strong>
+          <span>{{ feature.summary }}</span>
+          <small class="mono">{{ feature.evidence_count }} refs</small>
+        </section>
+        {% else %}
+        <section><strong>No feature set</strong><span>{{ projection.reason }}</span><small class="mono">0 refs</small></section>
+        {% endfor %}
+      </div>
+      <p class="burner-note">Burner classification: {{ projection.burner_status.status }} - {{ projection.burner_status.reason }}</p>
+    </article>
+  </section>
+
+  <section class="live-capability-panel">
+    <header>
+      <span>Feature gates</span>
+      <h2>What this live trace can and cannot claim</h2>
+    </header>
+    <div class="capability-strip">
+      {% for item in runtime_status.capability_snapshot %}
+      <article class="{{ item.state }}">
+        <strong>{{ item.name }}</strong>
+        <span>{{ item.state | labelize }}</span>
+        <p>{{ item.detail }}</p>
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+
+  {% if result.unconfirmed_observations %}
+  <section class="unconfirmed-channel">
+    <header>
+      <div><span>Observation channel</span><h2>Unconfirmed transfers</h2></div>
+      <strong>Never used for attribution</strong>
+    </header>
+    {% for item in result.unconfirmed_observations %}
+    <article><b>{{ item.status | labelize }}</b><span class="mono">{{ item.txid | default('No transaction returned', true) }}</span><p>{{ item.warning }}</p></article>
+    {% endfor %}
+  </section>
+  {% endif %}
+
+  <section class="live-terminal" data-explain-target="terminal" role="button" tabindex="0">
+    <h2>Why this trace stopped</h2>
+    <strong>{{ stop.label }}</strong>
+    <p>{{ stop.detail }} Terminal recorded as {{ stop.terminal_label }}. {{ terminal.note }}</p>
+  </section>
+
+  {% include "_trace_explainability.html" %}
+</section>
+{% endblock %}
+
+{% block actionbar %}
+<div class="live-actionbar">
+  <span>Existing evidence and superseded snapshots are retained.</span>
+  <div>
+    <button class="trace-explain-trigger" type="button" data-explain-target="methodology">Explain trace</button>
+    <a href="/cases/{{ case.id }}/canvas?snapshot={{ snapshot.id }}">Open canvas</a>
+    <form method="post" action="/traces/{{ snapshot.id }}/retrace">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit">Refresh and re-trace</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
