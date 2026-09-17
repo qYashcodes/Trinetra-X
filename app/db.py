@@ -26,10 +26,10 @@ engine = create_engine(
 
 
 def init_db() -> None:
+    _enable_sqlite_wal_if_supported()
     SQLModel.metadata.create_all(engine)
     with engine.connect() as connection:
         upgrade_sqlite_schema(connection)
-        connection.exec_driver_sql("PRAGMA journal_mode=WAL")
         connection.exec_driver_sql("PRAGMA busy_timeout=5000")
         connection.commit()
 
@@ -37,6 +37,22 @@ def init_db() -> None:
 def get_session():
     with Session(engine) as session:
         yield session
+
+
+def _enable_sqlite_wal_if_supported() -> None:
+    """Enable WAL only for file-backed SQLite databases.
+
+    SQLAlchemy 2.0 auto-begins transactions for driver SQL. SQLite refuses to
+    change journal mode inside a transaction, and in-memory databases cannot use
+    WAL at all, so this must run on a fresh autocommit connection.
+    """
+    if engine.dialect.name != "sqlite":
+        return
+    database = engine.url.database
+    if database in (None, "", ":memory:"):
+        return
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+        connection.exec_driver_sql("PRAGMA journal_mode=WAL")
 
 
 def upgrade_sqlite_schema(connection: Connection) -> None:

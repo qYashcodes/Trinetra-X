@@ -1,11 +1,42 @@
 from __future__ import annotations
 
 from sqlalchemy import create_engine
+from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel
 
-from app.db import upgrade_sqlite_schema
+import app.db as db_module
+from app.db import _enable_sqlite_wal_if_supported, upgrade_sqlite_schema
 from app.models import TraceSnapshot
 from app.settings import ROOT_DIR
+
+
+def test_sqlite_wal_is_skipped_for_in_memory_database(monkeypatch) -> None:
+    memory_engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    monkeypatch.setattr(db_module, "engine", memory_engine)
+
+    _enable_sqlite_wal_if_supported()
+
+    with memory_engine.connect() as connection:
+        journal_mode = connection.exec_driver_sql("PRAGMA journal_mode").scalar()
+    assert str(journal_mode).lower() == "memory"
+    memory_engine.dispose()
+
+
+def test_sqlite_wal_uses_autocommit_for_file_database(tmp_path, monkeypatch) -> None:
+    db_path = tmp_path / "wal-startup.db"
+    file_engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    monkeypatch.setattr(db_module, "engine", file_engine)
+
+    _enable_sqlite_wal_if_supported()
+
+    with file_engine.connect() as connection:
+        journal_mode = connection.exec_driver_sql("PRAGMA journal_mode").scalar()
+    assert str(journal_mode).lower() == "wal"
+    file_engine.dispose()
 
 
 def test_sqlite_upgrade_adds_trace_snapshot_columns_to_existing_database() -> None:
