@@ -53,6 +53,7 @@
       <div class="nav-group">Outputs</div>
       <a class="nav-item {{ 'active' if path.startswith('/findings') else '' }}" href="{{ '/findings/' ~ nav_case.finding_id if nav_case.finding_id else '/notices' }}"><span>Custody findings</span></a>
       <a class="nav-item {{ 'active' if path.startswith('/notices') else '' }}" href="/notices"><span>Freeze notices</span><b>11</b></a>
+      <a class="nav-item {{ 'active' if path.startswith('/dispatch-tracker') else '' }}" href="/dispatch-tracker"><span>Dispatch tracker</span></a>
       <div class="nav-group">Tools</div>
       <a class="nav-item {{ 'active' if path.startswith('/risk-check') else '' }}" href="/risk-check"><span>Risk check</span></a>
       <a class="nav-item {{ 'active' if path.startswith('/integrations') else '' }}" href="/integrations"><span>Integration status</span></a>

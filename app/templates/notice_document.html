@@ -26,7 +26,7 @@
   <tr><td>Deposit observed at</td><td>{{ terminal_hop.ts_ms | ist }}</td></tr>
   <tr><td>Originating transaction hash</td><td>{{ case.payment_txid }}</td></tr>
 </tbody></table>
-<p class="notice-justified">2.&nbsp;&nbsp;You are directed, in exercise of the powers conferred on the undersigned under Section 106 of the Bharatiya Nagarik Suraksha Sanhita, 2023, read with the standing instructions of the State Nodal Officer for cybercrime, to take the following steps within <span data-deadline-words>{% if notice.deadline_hours == 72 %}seventy-two hours{% elif notice.deadline_hours == 168 %}seven days{% else %}twenty-four hours{% endif %}</span> of receipt of this notice:</p>
+<p class="notice-justified">2.&nbsp;&nbsp;You are directed, in exercise of the powers conferred on the undersigned under Section 106 of the Bharatiya Nagarik Suraksha Sanhita, 2023, read with the standing instructions of the State Nodal Officer for cybercrime, to take the following steps. <span data-deadline-words>Response required: ASAP, and in any case within 24 hours of receipt of this notice.</span></p>
 <ol type="a">
   <li>Place a hold on the balance standing at the said deposit address, and on the customer account to which it is credited, to the extent of {{ finding.amount_credited_base | amount }}.</li>
   <li>Preserve all account-opening records, know-your-customer documents, login and device logs, and the deposit and withdrawal history of that account for the period 1 July 2026 to date.</li>

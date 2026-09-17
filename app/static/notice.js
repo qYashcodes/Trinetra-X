@@ -2,7 +2,6 @@
   const root = document.querySelector('.notice-app');
   if (!root) return;
   const channels = [...root.querySelectorAll('[data-channel]')];
-  const periods = [...root.querySelectorAll('input[name="deadline_hours"]')];
   const sendbar = root.querySelector('.notice-sendbar');
   const send = root.querySelector('[data-send]');
   const sendCopy = root.querySelector('[data-send-copy]');
@@ -16,7 +15,6 @@
   let modalTrigger = null;
 
   const selectedCount = () => channels.filter((input) => input.checked).length;
-  const periodLabel = () => ({'24':'24 hours','72':'72 hours','168':'7 days'})[periods.find((p) => p.checked)?.value || '24'];
 
   const syncChannels = () => {
     channels.forEach((input) => {
@@ -42,17 +40,6 @@
           : 'Ready to dispatch on the selected channels. You will be asked to confirm.';
   };
   channels.forEach((input) => input.addEventListener('change', syncChannels));
-
-  periods.forEach((input) => input.addEventListener('change', () => {
-    const words = {'24':'twenty-four hours','72':'seventy-two hours','168':'seven days'}[input.value];
-    root.querySelector('[data-deadline-words]').textContent = words;
-    root.querySelector('[data-confirm-period]').textContent = periodLabel();
-    root.querySelector('[data-period-note]').textContent = input.value === '24'
-      ? 'The document body now reads twenty-four hours, the standing period for a first restraint.'
-      : input.value === '72'
-        ? 'The document body now reads seventy-two hours, used where the custodian sits outside Indian jurisdiction.'
-        : 'The document body now reads seven days. A seven-day period applies only to record production, not to the restraint itself.';
-  }));
 
   const closeModal = () => {
     if (modal.hidden) return;

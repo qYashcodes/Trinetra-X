@@ -382,7 +382,7 @@ def test_live_tron_trace_gate_runs_bounded_multi_hop_without_custody(
         ),
     )
 
-    assert snapshot["engine"]["version"] == "engine-v1.2-live-tron-trace"
+    assert snapshot["engine"]["version"] == "engine-v1.3-live-tron-trace"
     assert snapshot["seed_match"]["trace"] == "bounded_multi_hop"
     assert snapshot["terminal"]["reason"] == "live_tron_trace_bounded"
     assert snapshot["terminal"]["addresses_queried"] == 3

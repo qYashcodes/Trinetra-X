@@ -159,7 +159,7 @@ def _engine_version_label(params: TraceParams | None = None) -> str:
     if _effective_engine_mode(params) == "fixture":
         return "engine-v1.0-fixture"
     if _live_tron_trace_enabled():
-        return "engine-v1.2-live-tron-trace"
+        return "engine-v1.3-live-tron-trace"
     return "engine-v1.1-live-tron-seed" if _live_tron_provider_enabled() else "engine-v1.0-live-gated"
 
 

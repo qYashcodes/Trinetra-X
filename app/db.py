@@ -69,6 +69,27 @@ def upgrade_sqlite_schema(connection: Connection) -> None:
         "ON tracesnapshot (case_id, cache_identity) WHERE cache_identity IS NOT NULL"
     )
     _sqlite_create_unique_indexes(connection)
+    _sqlite_add_missing_columns(
+        connection,
+        "notice",
+        {
+            "tracker_status": "TEXT NOT NULL DEFAULT 'drafted'",
+            "tracker_sub_outcome": "TEXT",
+            "tracker_last_note": "TEXT",
+            "tracker_updated_ts_ms": "INTEGER",
+            "dispatched_ts_ms": "INTEGER",
+        },
+    )
+    _sqlite_create_indexes(
+        connection,
+        [
+            ("ix_notice_tracker_status", "notice", "tracker_status"),
+            ("ix_notice_dispatched_ts_ms", "notice", "dispatched_ts_ms"),
+            ("ix_noticetrackerevent_notice_id", "noticetrackerevent", "notice_id"),
+            ("ix_noticetrackerevent_to_status", "noticetrackerevent", "to_status"),
+            ("ix_noticetrackerevent_created_ts_ms", "noticetrackerevent", "created_ts_ms"),
+        ],
+    )
 
 
 def _sqlite_add_missing_columns(

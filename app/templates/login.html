@@ -19,11 +19,23 @@
         <span>Sign in with SAHYOG Portal</span>
         <small>Integration pending</small>
       </a>
-      <form method="post" action="/auth/prototype">
+      <div class="prototype-account-grid" aria-label="Prototype demonstration accounts">
+        <form method="post" action="/auth/prototype">
         <input type="hidden" name="role" value="io">
-        <button class="login-button login-button-prototype" type="submit">PROTOTYPE BASED LOGIN</button>
-        <span class="login-demo-label">Demonstration account · generated artifacts are marked</span>
-      </form>
+          <button class="login-button login-button-prototype" type="submit">
+            <span>Sign in as Insp. R. Kulkarni</span>
+            <small>Investigating officer</small>
+          </button>
+        </form>
+        <form method="post" action="/auth/prototype">
+          <input type="hidden" name="role" value="supervisor">
+          <button class="login-button login-button-prototype" type="submit">
+            <span>Sign in as ACP S. Deshmukh</span>
+            <small>Countersignature officer</small>
+          </button>
+        </form>
+      </div>
+      <span class="login-demo-label">PROTOTYPE BASED LOGIN · Demonstration account selection · each action is recorded under the selected officer identity</span>
     </div>
 
     <p class="login-help">Access is provisioned by your departmental nodal officer.</p>

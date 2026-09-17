@@ -199,12 +199,17 @@ def test_non_custody_terminal_explains_the_finding_gate_and_stronger_evidence() 
     explanation = trace_explainability(_live_snapshot())
     terminal = next(item for item in explanation["items"] if item["id"] == "terminal")
     end_facts = terminal["registers"]["investigator"][3]["facts"]
+    investigator_copy = " ".join(section["body"] for section in terminal["registers"]["investigator"])
+    technical_copy = " ".join(section["body"] for section in terminal["registers"]["technical"])
 
     assert end_facts["terminal_kind"] == "depth_exhausted"
     assert end_facts["case_stage"] == "trace_incomplete"
     assert end_facts["finding_permitted"] is False
     assert "Resume or re-run" in end_facts["stronger_outcome_requires"]
     assert terminal["amount_base"] is None
+    assert investigator_copy != technical_copy
+    assert "not a person identity or a finding of guilt" in investigator_copy
+    assert "terminal_kind=depth_exhausted" in technical_copy
 
 
 def test_methodology_annex_records_bounds_taxonomy_limits_and_no_model_output() -> None:

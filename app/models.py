@@ -524,8 +524,24 @@ class Notice(SQLModel, table=True):
     pdf_sha256: str | None = None
     countersigned_by_pis: str | None = None
     countersigned_ts_ms: int | None = None
+    tracker_status: str = Field(default="drafted", index=True)
+    tracker_sub_outcome: str | None = None
+    tracker_last_note: str | None = None
+    tracker_updated_ts_ms: int | None = None
+    dispatched_ts_ms: int | None = Field(default=None, index=True)
     created_by_pis: str
     created_ts_ms: int
+
+
+class NoticeTrackerEvent(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    notice_id: int = Field(index=True, foreign_key="notice.id")
+    actor_pis: str
+    from_status: str | None = None
+    to_status: str = Field(index=True)
+    sub_outcome: str | None = None
+    note: str | None = None
+    created_ts_ms: int = Field(index=True)
 
 
 class Dispatch(SQLModel, table=True):

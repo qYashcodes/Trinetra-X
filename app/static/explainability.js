@@ -50,14 +50,20 @@
     const item = items.get(selectedId) || items.get("methodology") || data.items[0];
     title.textContent = item.title;
     meta.textContent = [item.address, item.display_amount].filter(Boolean).join(" | ");
-    registerLabel.textContent = data.registers[register];
+    const registerTitle = data.registers?.[register] || register;
+    registerLabel.textContent = registerTitle;
     dialog.querySelectorAll("[data-explain-subject]").forEach((button) => {
       button.setAttribute("aria-current", String(button.dataset.explainSubject === item.id));
     });
     dialog.querySelectorAll("[data-explain-register]").forEach((button) => {
       button.setAttribute("aria-selected", String(button.dataset.explainRegister === register));
     });
-    content.innerHTML = item.registers[register].map((section) => {
+    const sections = item.registers?.[register] || [{
+      title: "Not recorded",
+      body: "This explanation register is not recorded for this item.",
+      facts: {}
+    }];
+    content.innerHTML = sections.map((section) => {
       const rows = factRows(section.facts);
       return `<section><h3>${escapeHtml(section.title)}</h3><p>${escapeHtml(section.body)}</p>${rows.length ? `<dl class="trace-explain-facts">${rows.join("")}</dl>` : ""}</section>`;
     }).join("");

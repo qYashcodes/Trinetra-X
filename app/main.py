@@ -58,6 +58,7 @@ from app.repository import (
     finding_review_specs,
     get_or_create_trace,
     prepare_notice,
+    reset_demo_notice_workflow,
     seed_demo,
 )
 from app.services.audit import append_audit_event, read_audit_events, verify_audit_chain
@@ -68,6 +69,15 @@ from app.services.explainability import (
     methodology_annex_text,
     trace_explainability,
 )
+from app.services.dispatch_tracker import (
+    RESPONSE_SUB_OUTCOMES,
+    TRACKER_STATUS_LABELS,
+    normalize_manual_status,
+    record_tracker_event,
+    tracker_counts,
+    tracker_rows,
+)
+from app.services.graph_view import omega_graph_payload
 from app.services.hash import sha256_bytes, sha256_json
 from app.services.integrations import integration_status
 from app.services.feature_flags import feature_flags
@@ -192,7 +202,7 @@ NOTICE_CHANNELS = {
         "target": "nodal-mh@cybercell.example.invalid",
     },
 }
-NOTICE_DEADLINES = {24, 72, 168}
+NOTICE_DEADLINES = {24}
 
 
 def risk_notice_state(session: Session) -> dict:
@@ -615,6 +625,7 @@ def login(request: Request) -> HTMLResponse:
 def prototype_login(
     request: Request,
     role: Annotated[str, Form()] = "io",
+    next_url: Annotated[str | None, Form()] = None,
     session: Session = Depends(get_session),
 ) -> Response:
     if role not in {OfficerRole.io.value, OfficerRole.supervisor.value}:
@@ -637,7 +648,12 @@ def prototype_login(
         f"session:{officer_session.id}",
         {"role": role, "authentication_kind": "prototype_demonstration"},
     )
-    return RedirectResponse("/docket", status_code=303)
+    redirect_to = (
+        next_url
+        if next_url and next_url.startswith("/") and not next_url.startswith("//")
+        else "/docket"
+    )
+    return RedirectResponse(redirect_to, status_code=303)
 
 
 @app.get("/auth/prototype/supervisor", response_class=HTMLResponse)
@@ -677,6 +693,14 @@ def logout(
             f"session:{row.id}",
             signout_summary(row),
         )
+        reset_summary = reset_demo_notice_workflow(session)
+        if reset_summary["notices"]:
+            append_audit_event(
+                row.officer_pis,
+                "demo_notice.reset_on_logout",
+                "controlled_fixture",
+                reset_summary,
+            )
     request.session.clear()
     return RedirectResponse("/login", status_code=303)
 
@@ -731,6 +755,14 @@ def logout_all_sessions(
         f"officer:{user['pis']}",
         {"session_ids": [row.id for row in rows], "session_count": len(rows)},
     )
+    reset_summary = reset_demo_notice_workflow(session)
+    if reset_summary["notices"]:
+        append_audit_event(
+            user["pis"],
+            "demo_notice.reset_on_logout",
+            "controlled_fixture",
+            reset_summary,
+        )
     request.session.clear()
     return RedirectResponse("/login", status_code=303)
 
@@ -1225,9 +1257,12 @@ def canvas(
             **template_context(request, user),
             "case": case,
             "snapshot": snap,
+            "finding": finding,
             "view": view,
             "runtime_status": snapshot_runtime_status(session, snap) if snap else None,
             "explainability": snapshot_explanation(session, snap) if snap else None,
+            "omega_graph": omega_graph_payload(snap.result_json if snap else {}, case=case),
+            "trace_strategy": str(((snap.result_json if snap else {}).get("params") or {}).get("strategy") or "dominant_fund_flow"),
         },
     )
 
@@ -1517,12 +1552,7 @@ async def dispatch_notice(
     unknown_channels = set(channel_keys).difference(NOTICE_CHANNELS)
     if unknown_channels:
         raise HTTPException(422, f"Unknown dispatch channel: {sorted(unknown_channels)[0]}")
-    try:
-        deadline_hours = int(str(form.get("deadline_hours", notice.deadline_hours)))
-    except ValueError as exc:
-        raise HTTPException(422, "Invalid response deadline.") from exc
-    if deadline_hours not in NOTICE_DEADLINES:
-        raise HTTPException(422, "Invalid response deadline.")
+    deadline_hours = 24
     finding = session.get(Finding, notice.finding_id)
     if (
         finding
@@ -1544,6 +1574,7 @@ async def dispatch_notice(
     notice.pdf_sha256 = sha256_bytes(payload)
     notice.status = "dispatched"
     notice.deadline_hours = deadline_hours
+    notice.dispatched_ts_ms = now
     for channel_key in channel_keys:
         channel = NOTICE_CHANNELS[channel_key]
         failed = channel_key == "nodal-copy"
@@ -1559,6 +1590,14 @@ async def dispatch_notice(
                 updated_ts_ms=now,
             )
         )
+    record_tracker_event(
+        session,
+        notice,
+        actor_pis=user["pis"],
+        to_status="dispatched",
+        note="Status updated manually by officer at dispatch in the prototype.",
+        ts_ms=now,
+    )
     session.add(notice)
     case = session.get(Case, notice.case_id)
     if case:
@@ -1573,6 +1612,108 @@ async def dispatch_notice(
         {"channels": channel_keys, "deadline_hours": deadline_hours},
     )
     return RedirectResponse(f"/notices/{notice.id}", status_code=303)
+
+
+@app.get("/dispatch-tracker", response_class=HTMLResponse)
+def dispatch_tracker(
+    request: Request,
+    status: str | None = Query(default=None),
+    vasp: str | None = Query(default=None),
+    case: str | None = Query(default=None),
+    session: Session = Depends(get_session),
+    user: dict = Depends(session_user),
+) -> HTMLResponse:
+    normalized_status = None
+    if status:
+        normalized_status = status.strip().lower().replace("-", "_")
+        if normalized_status not in TRACKER_STATUS_LABELS:
+            normalized_status = None
+    rows = tracker_rows(
+        session,
+        status_filter=normalized_status,
+        vasp_filter=vasp or None,
+        case_filter=case or None,
+    )
+    unfiltered_rows = tracker_rows(session)
+    return templates.TemplateResponse(
+        request,
+        "dispatch_tracker.html",
+        {
+            **template_context(request, user),
+            "rows": rows,
+            "counts": tracker_counts(unfiltered_rows),
+            "status_labels": TRACKER_STATUS_LABELS,
+            "response_sub_outcomes": RESPONSE_SUB_OUTCOMES,
+            "filters": {
+                "status": normalized_status or "",
+                "vasp": vasp or "",
+                "case": case or "",
+            },
+        },
+    )
+
+
+@app.post("/dispatch-tracker/{notice_id}/status")
+async def update_dispatch_tracker_status(
+    notice_id: int,
+    request: Request,
+    session: Session = Depends(get_session),
+    user: dict = Depends(session_user),
+) -> Response:
+    notice = session.get(Notice, notice_id)
+    if not notice:
+        raise HTTPException(404)
+    form = await request.form()
+    require_csrf(request, str(form.get("csrf_token") or ""))
+    try:
+        to_status = normalize_manual_status(str(form.get("tracker_status") or ""))
+    except ValueError as exc:
+        raise HTTPException(422, "Unknown tracker status.") from exc
+    sub_outcome = str(form.get("sub_outcome") or "").strip()
+    if sub_outcome and sub_outcome not in RESPONSE_SUB_OUTCOMES:
+        raise HTTPException(422, "Unknown tracker response outcome.")
+    note = str(form.get("note") or "").strip()
+    record_tracker_event(
+        session,
+        notice,
+        actor_pis=user["pis"],
+        to_status=to_status,
+        sub_outcome=sub_outcome or None,
+        note=note or "Status updated manually by officer.",
+    )
+    session.commit()
+    append_audit_event(
+        user["pis"],
+        "notice.tracker_update",
+        notice.notice_no,
+        {"status": to_status, "sub_outcome": sub_outcome or None},
+    )
+    return RedirectResponse("/dispatch-tracker", status_code=303)
+
+
+@app.post("/dispatch-tracker/{notice_id}/escalate")
+async def escalate_dispatch_tracker_notice(
+    notice_id: int,
+    request: Request,
+    session: Session = Depends(get_session),
+    user: dict = Depends(session_user),
+) -> Response:
+    notice = session.get(Notice, notice_id)
+    if not notice:
+        raise HTTPException(404)
+    form = await request.form()
+    require_csrf(request, str(form.get("csrf_token") or ""))
+    note = str(form.get("note") or "").strip() or "Manual escalation recorded by officer."
+    record_tracker_event(
+        session,
+        notice,
+        actor_pis=user["pis"],
+        to_status="escalated",
+        note=note,
+    )
+    session.commit()
+    append_audit_event(user["pis"], "notice.tracker_escalate", notice.notice_no, {"note": note})
+    return RedirectResponse("/dispatch-tracker", status_code=303)
 
 
 def _risk_case_context(session: Session, address: str) -> tuple[list[dict], set[str]]:

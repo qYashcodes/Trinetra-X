@@ -1,0 +1,362 @@
+.omega-graph-card {
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid #263244;
+  border-radius: 8px;
+  background: #101722;
+  color: #e8edf7;
+  box-shadow: 0 18px 34px rgba(16, 23, 34, .14);
+}
+
+.omega-graph-workbench {
+  min-height: 520px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 330px;
+}
+
+.omega-graph-stage {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+
+.omega-graph-header {
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 13px 16px;
+  border-bottom: 1px solid #273348;
+  background: #121b28;
+}
+
+.omega-graph-header span {
+  color: #5fd09b;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.omega-graph-header h2 {
+  margin: 2px 0 0;
+  color: #f4f7fb;
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.omega-graph-header p {
+  margin: 3px 0 0;
+  color: #9aa8bb;
+  font-size: 11px;
+}
+
+.omega-graph-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.omega-graph-actions button {
+  min-width: 39px;
+  height: 34px;
+  padding: 0 11px;
+  border: 1px solid #314058;
+  border-radius: 6px;
+  background: #1b2636;
+  color: #e8edf7;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.omega-graph-actions button[aria-checked="true"] {
+  border-color: #4fa57d;
+  color: #fff;
+}
+
+.omega-graph-actions button:hover {
+  border-color: #5fd09b;
+  background: #223047;
+  color: #fff;
+}
+
+.omega-graph-viewport {
+  height: min(58vh, 650px);
+  min-height: 420px;
+  overflow: hidden;
+  position: relative;
+  background:
+    linear-gradient(#192333 1px, transparent 1px),
+    linear-gradient(90deg, #192333 1px, transparent 1px),
+    #0d1420;
+  background-size: 40px 40px;
+  cursor: grab;
+}
+
+.omega-graph-viewport:active { cursor: grabbing; }
+
+.omega-graph-viewport svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  color: #9fb3cb;
+  user-select: none;
+}
+
+.omega-flow-edge {
+  stroke: currentColor;
+  stroke-linecap: round;
+  opacity: .48;
+  cursor: pointer;
+  transition: opacity .16s ease, stroke .16s ease;
+}
+
+.omega-flow-edge:hover,
+.omega-flow-edge.selected {
+  opacity: .96;
+  stroke: #e6edf7;
+}
+
+.omega-flow-edge.edge-deferred,
+.omega-flow-edge.edge-parked {
+  stroke: #d8a43c;
+}
+
+.omega-flow-edge.edge-terminal {
+  stroke: #5fd09b;
+  stroke-dasharray: 7 6;
+}
+
+.omega-arrow { fill: #9fb3cb; }
+
+.omega-edge-label {
+  pointer-events: auto;
+  cursor: pointer;
+  fill: #dce7f5;
+  stroke: #101722;
+  stroke-width: 5px;
+  stroke-linejoin: round;
+  paint-order: stroke;
+  font-family: "Noto Sans Mono", Consolas, monospace;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.omega-edge-label.selected {
+  fill: #fff;
+  font-size: 12px;
+}
+
+.omega-graph-node {
+  cursor: pointer;
+}
+
+.omega-node-box {
+  fill: #151e2b;
+  stroke: #435168;
+  stroke-width: 2px;
+  filter: drop-shadow(0 12px 16px rgba(0, 0, 0, .22));
+}
+
+.omega-graph-node:hover .omega-node-box { stroke-width: 3px; }
+.omega-graph-node.selected .omega-node-box { stroke: #5fd09b; stroke-width: 4px; }
+.omega-graph-node.node-seed .omega-node-box { stroke: #47b981; }
+.omega-graph-node.node-deferred .omega-node-box { stroke: #b9892d; }
+.omega-graph-node.node-terminal .omega-node-box { stroke: #67d6a4; stroke-dasharray: 6 5; }
+
+.omega-node-depth,
+.omega-node-role {
+  fill: #9faabd;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.omega-node-address {
+  fill: #f5f7fb;
+  font-family: "Noto Sans Mono", Consolas, monospace;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.omega-node-amount {
+  fill: #dce7f5;
+  font-family: "Noto Sans Mono", Consolas, monospace;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.omega-graph-side {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  border-left: 1px solid #273348;
+  background: #111a27;
+}
+
+.omega-graph-details,
+.omega-graph-legend {
+  min-width: 0;
+  padding: 15px 16px;
+}
+
+.omega-graph-legend {
+  border-top: 1px solid #273348;
+}
+
+.omega-graph-details h2,
+.omega-graph-legend h2 {
+  margin: 0 0 11px;
+  color: #f4f7fb;
+  font-size: 15px;
+}
+
+.omega-graph-details h3 {
+  margin: 10px 0 5px;
+  color: #98a8bd;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.omega-detail-value {
+  margin-bottom: 7px;
+  color: #e8edf7;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.omega-detail-value.copyable-address {
+  cursor: pointer;
+}
+
+.omega-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 10px 0 4px;
+}
+
+.omega-detail-actions button {
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid #314058;
+  border-radius: 6px;
+  background: #1b2636;
+  color: #e8edf7;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.omega-detail-actions button:hover {
+  border-color: #5fd09b;
+}
+
+.omega-reasons {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.omega-reasons li {
+  padding: 6px 7px;
+  border: 1px solid #2a384e;
+  border-radius: 5px;
+  background: #151f2e;
+  color: #c2cfdf;
+  font-size: 11px;
+}
+
+.omega-graph-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 16px 8px 0;
+  color: #adbad0;
+  font-size: 12px;
+}
+
+.omega-box {
+  width: 17px;
+  height: 17px;
+  display: inline-block;
+  border: 2px solid #435168;
+  border-radius: 4px;
+  background: #151e2b;
+}
+
+.omega-box.seed { border-color: #47b981; }
+.omega-box.deferred { border-color: #b9892d; }
+.omega-box.terminal { border-color: #67d6a4; border-style: dashed; }
+.omega-line {
+  width: 28px;
+  height: 4px;
+  display: inline-block;
+  border-radius: 999px;
+  background: #9fb3cb;
+}
+
+.omega-muted {
+  color: #9aa8bb;
+  font-size: 12px;
+}
+
+.omega-graph-card.omega-hide-values .omega-edge-label,
+.omega-graph-card.omega-hide-values .omega-node-amount {
+  display: none;
+}
+
+.omega-graph-card.omega-hide-parked .node-deferred,
+.omega-graph-card.omega-hide-parked .edge-deferred,
+.omega-graph-card.omega-hide-parked .edge-parked,
+.omega-graph-card.omega-hide-parked .omega-edge-label.edge-deferred,
+.omega-graph-card.omega-hide-parked .omega-edge-label.edge-parked {
+  display: none;
+}
+
+#copyToast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translate(-50%, 20px);
+  padding: 10px 14px;
+  border: 1px solid #334b67;
+  border-radius: 10px;
+  background: #182536;
+  color: #fff;
+  font-size: 13px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .18s ease, transform .18s ease;
+  z-index: 9999;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, .35);
+}
+
+#copyToast.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+@media (max-width: 1050px) {
+  .omega-graph-workbench { grid-template-columns: 1fr; }
+  .omega-graph-side { border-top: 1px solid #273348; border-left: 0; }
+}
+
+@media (max-width: 720px) {
+  .omega-graph-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .omega-graph-actions {
+    justify-content: flex-start;
+  }
+  .omega-graph-viewport {
+    min-height: 390px;
+  }
+}

@@ -130,6 +130,30 @@ def fetch_unconfirmed_trc20_transfers(
     return _paginate(http, cfg, f"/v1/accounts/{address}/transactions/trc20", params)
 
 
+def fetch_trc20_balance(
+    address: str,
+    *,
+    contract_address: str = TRON_MAINNET_USDT,
+    session: Any | None = None,
+    config: TronGridConfig | None = None,
+) -> dict[str, Any]:
+    cfg = config or config_from_env()
+    http = session or requests.Session()
+    response = _get_json(http, cfg, f"/v1/accounts/{address}", {})
+    rows = _data_list(response)
+    account = rows[0] if rows else {}
+    return {
+        "address": address,
+        "contract": contract_address,
+        "amount_base": _account_trc20_balance(account, contract_address) if account else 0,
+        "token": "USDT" if contract_address == TRON_MAINNET_USDT else "TRC20",
+        "decimals": 6,
+        "retrieval_ts_ms": response.get("_trinetra_retrieval_ts_ms"),
+        "raw_sha256": response.get("_trinetra_raw_sha256"),
+        "provider_request_ref": response.get("_trinetra_provider_request_ref"),
+    }
+
+
 def fetch_transaction_events(
     txid: str,
     *,
@@ -442,6 +466,14 @@ def _validate_response_schema(path: str, payload: dict) -> None:
                     "TronGrid TRC-20 row has invalid integer fields.",
                     error_kind="schema_drift",
                 ) from exc
+    elif path.startswith("/v1/accounts/"):
+        for row in data or []:
+            trc20 = row.get("trc20")
+            if trc20 is not None and not isinstance(trc20, (list, dict)):
+                raise ProviderSchemaDriftError(
+                    "TronGrid account trc20 field is not a list or object.",
+                    error_kind="schema_drift",
+                )
 
 
 def _looks_rate_limited(payload: Any) -> bool:
@@ -548,6 +580,45 @@ def _event_amount(event: dict) -> int | None:
     except (TypeError, ValueError) as exc:
         raise ProviderSchemaDriftError(
             "TronGrid event amount is not an integer.",
+            error_kind="schema_drift",
+        ) from exc
+
+
+def _account_trc20_balance(account: dict, contract_address: str) -> int:
+    entries = account.get("trc20")
+    target = contract_address.lower()
+    if isinstance(entries, dict):
+        for key, value in entries.items():
+            if str(key).lower() == target:
+                return _parse_balance_value(value)
+        return 0
+    if isinstance(entries, list):
+        for item in entries:
+            if not isinstance(item, dict):
+                continue
+            for key, value in item.items():
+                if str(key).lower() == target:
+                    return _parse_balance_value(value)
+            token_info_value = item.get("token_info") or item.get("tokenInfo")
+            token_info = token_info_value if isinstance(token_info_value, dict) else {}
+            item_contract = _first_present(item, "contract_address", "tokenId", "token_id", "address")
+            if item_contract is None:
+                item_contract = _first_present(token_info, "address", "contract_address")
+            if item_contract is not None and str(item_contract).lower() == target:
+                return _parse_balance_value(_first_present(item, "balance", "amount", "value", "quantity"))
+    return 0
+
+
+def _parse_balance_value(value: Any) -> int:
+    if value is None:
+        return 0
+    if isinstance(value, dict):
+        value = _first_present(value, "balance", "amount", "value", "quantity")
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise ProviderSchemaDriftError(
+            "TronGrid TRC-20 balance is not an integer.",
             error_kind="schema_drift",
         ) from exc
 

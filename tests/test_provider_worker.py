@@ -187,6 +187,61 @@ def test_every_paginated_provider_response_is_captured_and_persisted(
         engine.dispose()
 
 
+def test_trongrid_account_balance_parses_trc20_wallet_balance(
+    local_tmp_dir: Path,
+) -> None:
+    http = FakeSession(
+        [
+            FakeResponse(
+                200,
+                {
+                    "success": True,
+                    "data": [
+                        {
+                            "address": "TWallet",
+                            "trc20": [
+                                {tron.TRON_MAINNET_USDT: "123456789"},
+                                {"TAnotherToken": "5"},
+                            ],
+                        }
+                    ],
+                    "meta": {"at": 1_789_337_235_000},
+                },
+            )
+        ]
+    )
+    config = tron.TronGridConfig(base_url="https://api.trongrid.io", api_key="test")
+
+    with provider_evidence_scope(root=local_tmp_dir, case_id=18) as capture:
+        balance = tron.fetch_trc20_balance("TWallet", session=http, config=config)
+
+    assert balance["amount_base"] == 123_456_789
+    assert balance["contract"] == tron.TRON_MAINNET_USDT
+    assert balance["retrieval_ts_ms"] == capture.records[0]["retrieval_ts_ms"]
+    assert http.calls[0]["url"] == "https://api.trongrid.io/v1/accounts/TWallet"
+    assert http.calls[0]["params"] == {}
+    assert capture.records[0]["schema_status"] == "valid"
+
+
+def test_trongrid_account_balance_missing_token_is_zero(
+    local_tmp_dir: Path,
+) -> None:
+    http = FakeSession(
+        [
+            FakeResponse(
+                200,
+                {"success": True, "data": [{"address": "TWallet", "trc20": []}]},
+            )
+        ]
+    )
+    config = tron.TronGridConfig(base_url="https://api.trongrid.io", api_key="test")
+
+    with provider_evidence_scope(root=local_tmp_dir, case_id=18):
+        balance = tron.fetch_trc20_balance("TWallet", session=http, config=config)
+
+    assert balance["amount_base"] == 0
+
+
 def test_schema_drift_keeps_raw_payload_and_records_conflict(local_tmp_dir: Path) -> None:
     http = FakeSession(
         [FakeResponse(200, {"success": True, "data": {"unexpected": "object"}})]

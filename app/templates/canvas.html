@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Investigator canvas · TRINETRA{% endblock %}
 {% block body_class %}canvas-page{% endblock %}
-{% block page_styles %}<link rel="stylesheet" href="/static/workspace-shell.css"><link rel="stylesheet" href="/static/canvas.css"><link rel="stylesheet" href="/static/explainability.css">{% endblock %}
-{% block page_scripts %}<script defer src="/static/canvas.js"></script><script defer src="/static/explainability.js"></script>{% endblock %}
+{% block page_styles %}<link rel="stylesheet" href="/static/workspace-shell.css"><link rel="stylesheet" href="/static/canvas.css"><link rel="stylesheet" href="/static/omega-graph.css"><link rel="stylesheet" href="/static/explainability.css">{% endblock %}
+{% block page_scripts %}<script defer src="/static/omega-graph.js"></script><script defer src="/static/explainability.js"></script>{% endblock %}
 
 {% block authenticated %}
 {% set trace_hops = demo.dominant_path %}
@@ -10,6 +10,10 @@
 {% set hot_wallet_address = demo.terminal.hot_wallet %}
 {% set parked_value_base = demo.parked | sum(attribute='value_base') %}
 {% set parked_share_bp = demo.parked | sum(attribute='share_bp') %}
+{% set selected_strategy = trace_strategy | default('dominant_fund_flow') %}
+{% if omega_graph is not defined %}
+  {% set omega_graph = {'title': 'Transaction flow', 'subtitle': 'Trace graph exhibit', 'asset': {'symbol': demo.case.asset.symbol, 'decimals': demo.case.asset.decimals}, 'tree': {'address': demo.dominant_path[0].address, 'role': 'seed', 'token': demo.case.asset.symbol, 'decimals': demo.case.asset.decimals, 'amount': demo.case.amount_reported_base, 'amount_display': demo.case.amount_reported_base / 1000000, 'balance': {'available': false}, 'explain_target': 'seed', 'metadata': {'title': 'Reported payment anchor'}, 'children': []}} %}
+{% endif %}
 <div class="canvas-workspace" data-canvas-workspace
      data-deposit-address="{{ deposit_address }}"
      data-hot-wallet-address="{{ hot_wallet_address }}">
@@ -25,6 +29,9 @@
           <div class="canvas-case-title-row">
             <h1>{{ case.ack_no if case is defined else demo.case.ack_no }}</h1>
             <span class="canvas-chip canvas-chip-green"><i></i>Trace complete</span>
+            {% if finding is defined and finding %}
+              <a class="canvas-chip canvas-chip-link" href="/findings/{{ finding.id }}">Open custody finding</a>
+            {% endif %}
           </div>
           <p>Reported / at rest:&nbsp; <strong>{{ demo.case.amount_reported_base | amount_number }} / {{ demo.terminal.amount_credited_base | amount_number }} {{ demo.case.asset.symbol }}</strong>&nbsp; <strong>({{ demo.terminal.retained_share_bp | pctbp }} retained)</strong></p>
         </div>
@@ -39,150 +46,43 @@
 
       <section class="canvas-strategy" aria-label="Trace strategy">
         <strong class="canvas-strategy-title">Trace strategy</strong>
-        <button class="strategy-select" type="button" aria-label="Explain trace strategy: Dominant fund flow" data-explain-target="methodology">
-          <span aria-hidden="true">⇄</span><span>Dominant fund flow</span><small aria-hidden="true">▾</small>
-        </button>
+        <label class="strategy-select-wrap">
+          <span class="sr-only">View strategy</span>
+          <select class="strategy-select" data-strategy-select aria-label="View trace strategy">
+            <option value="dominant_fund_flow"{{ ' selected' if selected_strategy == 'dominant_fund_flow' else '' }}>Dominant fund flow</option>
+            <option value="value_weighted"{{ ' selected' if selected_strategy == 'value_weighted' else '' }}>Value weighted</option>
+          </select>
+        </label>
+        <button class="strategy-explain" type="button" data-explain-target="methodology">Explain trace</button>
         <span class="strategy-fact"><small>Value threshold</small><b>≥ 2%</b></span>
         <span class="strategy-fact"><small>Stop at</small><b>VASP / Mixer / Bridge</b></span>
       </section>
 
       <div class="canvas-main-row">
         <div class="canvas-left-column">
-          <section class="canvas-graph-card">
-            <div class="canvas-graph-toolbar">
-              <span class="canvas-toolbar-spacer"></span>
-              <label class="canvas-toggle-label">
-                <span>Show values</span>
-                <button class="canvas-switch" type="button" role="switch" aria-checked="true" data-toggle="values" aria-label="Show values"><i></i></button>
-              </label>
-              <label class="canvas-toggle-label">
-                <span>Show parked branches</span>
-                <button class="canvas-switch" type="button" role="switch" aria-checked="true" data-toggle="parked" aria-label="Show parked branches"><i></i></button>
-              </label>
-            </div>
-
-            <div class="canvas-graph-viewport" aria-label="Trace graph exhibit" tabindex="0">
-              <div class="canvas-flow-scale" data-flow-scale>
-                <div class="canvas-flow-content" data-flow-content>
-                  <div class="canvas-flow-grid">
-                    {% set node_labels = ['Victim payment', 'Pass-through', 'Peel chain', 'Consolidation', 'Exchange deposit'] %}
-                    {% set node_tones = ['address', 'cluster', 'exchange', 'cluster', 'exchange'] %}
-                    {% for node in trace_hops %}
-                    {% set column = 1 + ((loop.index0) * 2) %}
-                    <span class="flow-hop" style="grid-column:{{ column }};grid-row:1">H{{ node.hop }}</span>
-                    <button class="flow-node flow-node-{{ node_tones[loop.index0] }}" style="grid-column:{{ column }};grid-row:2" type="button"
-                            data-node-id="h{{ node.hop }}" data-explain-target="hop:{{ loop.index0 }}" aria-pressed="false"
-                            aria-label="H{{ node.hop }}, {{ node_labels[loop.index0] }}, {{ 'exchange deposit address' if loop.last else 'blockchain address' }}: {{ node.address }}">
-                      <i><span></span></i>
-                    </button>
-                    <span class="flow-node-copy" style="grid-column:{{ column }};grid-row:3">
-                      <strong>{{ node_labels[loop.index0] }}</strong>
-                      <small class="mono">{{ node.address[:4] }}...{{ node.address[-6:] if loop.last else node.address[-4:] }}</small>
-                      <b class="amount-dependent">{{ node.value_base | amount }}</b>
-                    </span>
-                    <button class="flow-edge-value amount-dependent" style="grid-column:{{ column + 1 }};grid-row:1" type="button" data-explain-target="hop:{{ loop.index0 }}">{{ 'Attributed to' if loop.last else node.value_base | amount }}</button>
-                    <span class="flow-edge {{ 'attribution' if loop.last else '' }}" style="grid-column:{{ column + 1 }};grid-row:2"><i></i><b></b></span>
-                    {% endfor %}
-                    <span class="flow-hop" style="grid-column:11;grid-row:1">H5</span>
-                    <button class="flow-node flow-node-verified" style="grid-column:11;grid-row:2" type="button" data-node-id="ex" data-explain-target="terminal" aria-pressed="true" aria-label="H5, Coinsphere, custodian hot-wallet address: {{ hot_wallet_address }}"><i><span></span></i></button>
-                    <span class="flow-node-copy" style="grid-column:11;grid-row:3"><strong>Coinsphere</strong><small class="mono">VASP</small></span>
-
-                    <span class="parked-visual" style="grid-column:5;grid-row:4" aria-hidden="true">
-                      <i></i><b></b><em><small></small></em>
-                    </span>
-                    <span class="parked-summary" style="grid-column:6 / span 2;grid-row:4" data-explain-target="parked:0" role="button" tabindex="0">
-                      <strong>+{{ demo.parked | length }} parked branches</strong><span>{{ parked_value_base | amount }}</span><small>{{ parked_share_bp | pctbp }}</small>
-                    </span>
-                    <span class="parked-control" style="grid-column:5 / span 3;grid-row:5">
-                      <button type="button" data-parked-expand aria-expanded="false" aria-label="Expand 2 parked branches">▼</button>
-                    </span>
-                    <span class="parked-list" style="grid-column:3 / span 5;grid-row:6" data-parked-list>
-                      {% for branch in demo.parked %}<span data-explain-target="parked:{{ loop.index0 }}" role="button" tabindex="0"><strong>Parked branch {{ branch.branch_id }}</strong><small class="mono" title="{{ branch.address }}">{{ branch.address[:6] }}...{{ branch.address[-4:] }}</small><b>{{ branch.value_base | amount }} · {{ branch.share_bp | pctbp }}</b></span>{% endfor %}
-                    </span>
-                  </div>
-
-                  <aside class="canvas-minimap" aria-label="Graph navigation">
-                    <div aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i class="last"></i></div>
-                    <span>
-                      <button type="button" data-zoom="in" aria-label="Zoom in">+</button>
-                      <button type="button" data-zoom="out" aria-label="Zoom out">−</button>
-                      <button type="button" data-zoom="fit" aria-label="Fit to view">⤢</button>
-                    </span>
-                  </aside>
-                </div>
-              </div>
-            </div>
-
-            <div class="canvas-legend" aria-label="Trace graph legend">
-              <span><i class="dot address"></i>Address</span>
-              <span><i class="dot cluster"></i>Cluster</span>
-              <span><i class="dot exchange"></i>Exchange / VASP</span>
-              <span><i class="dot mixer"></i>Mixer</span>
-              <span><i class="dot bridge"></i>Bridge</span>
-              <span><i class="line onchain"></i>On-chain transfer</span>
-              <span><i class="line attribution"></i>Attribution link</span>
-              <span><i class="line parked"></i>Parked branch</span>
-            </div>
-          </section>
+          {% include "_omega_graph.html" %}
 
           <section class="canvas-bottom-card">
             <div class="canvas-bottom-tabs" role="tablist" aria-label="Trace information">
-              <button type="button" role="tab" aria-selected="true" data-bottom-tab="timeline">Trace timeline</button>
-              <button type="button" role="tab" aria-selected="false" data-bottom-tab="summary">Fund summary</button>
-              <button type="button" role="tab" aria-selected="false" data-bottom-tab="insights">Key insights</button>
-              <button type="button" role="tab" aria-selected="false" data-bottom-tab="alerts">Alerts (1)</button>
+              <button type="button" role="tab" aria-selected="true">Trace timeline</button>
+              <button type="button" role="tab" aria-selected="false" data-explain-target="methodology">Methodology</button>
+              <button type="button" role="tab" aria-selected="false" data-explain-target="terminal">Terminal</button>
             </div>
-            <div class="canvas-bottom-panel timeline-panel" data-bottom-panel="timeline">
+            <div class="canvas-bottom-panel timeline-panel">
               {% set timeline_labels = ['Victim payment', 'Pass-through', 'Peel chain', 'Consolidation', 'Exchange deposit'] %}
               {% for item in trace_hops %}
                 {% if not loop.first %}<i class="timeline-arrow {{ 'warn' if loop.index0 == 3 else '' }}" aria-hidden="true">▶</i>{% endif %}
-                <button class="timeline-item" type="button" data-node-id="h{{ item.hop }}" data-explain-target="hop:{{ loop.index0 }}" aria-pressed="false">
+                <button class="timeline-item" type="button" data-explain-target="hop:{{ loop.index0 }}">
                   <span><b>H{{ item.hop }}</b><strong>{{ timeline_labels[loop.index0] }}</strong></span>
                   <em>{{ item.value_base | amount }}</em>
                   <small><i>{{ (item.ts_ms | ist)[11:16] }}</i><b class="{{ 'neutral' if loop.first else '' }}">{% if not loop.first %}−{{ ((trace_hops[loop.index0 - 1].share_bp - item.share_bp) / 100) }}%{% endif %}</b></small>
                 </button>
               {% endfor %}
               <i class="timeline-arrow" aria-hidden="true">▶</i>
-              <button class="timeline-item vasp" type="button" data-node-id="ex" data-explain-target="terminal" aria-pressed="true"><span><b>VASP</b><strong>VASP attribution</strong></span><em>Coinsphere</em><small><i>{{ (demo.hot_wallet.ts_ms | ist)[11:16] }}</i><b class="positive">High evidence band</b></small></button>
-            </div>
-            <div class="canvas-bottom-panel compact-bottom-panel" data-bottom-panel="summary" hidden>
-              <span data-explain-target="seed" role="button" tabindex="0"><small>Reported</small><strong>{{ demo.case.amount_reported_base | amount }}</strong></span>
-              <span data-explain-target="terminal" role="button" tabindex="0"><small>At rest</small><strong>{{ demo.terminal.amount_credited_base | amount }}</strong></span>
-              <span data-explain-target="methodology" role="button" tabindex="0"><small>Parked</small><strong>{{ parked_value_base | amount }}</strong></span>
-              <span data-explain-target="terminal" role="button" tabindex="0"><small>Retained</small><strong>{{ demo.terminal.retained_share_bp | pctbp }}</strong></span>
-            </div>
-            <div class="canvas-bottom-panel compact-bottom-panel" data-bottom-panel="insights" hidden>
-              <p><i></i>Largest surviving share reaches a verified VASP in five hops.</p>
-              <p><i></i>Two sub-threshold peel branches remain parked in the case record.</p>
-            </div>
-            <div class="canvas-bottom-panel compact-bottom-panel alert-bottom-panel" data-bottom-panel="alerts" hidden>
-              <p><i></i>Review the probable deposit-address attribution before preparing a restraint request.</p>
+              <button class="timeline-item vasp" type="button" data-explain-target="terminal"><span><b>VASP</b><strong>Terminal account object</strong></span><em>Coinsphere</em><small><i>{{ (demo.hot_wallet.ts_ms | ist)[11:16] }}</i><b class="positive">Evidence band only</b></small></button>
             </div>
           </section>
         </div>
-
-        <aside class="canvas-detail-panel" aria-label="Hop details">
-          <div class="detail-stepper">
-            <span data-hop-count>Hop 5 of 5</span>
-            <div>
-              <button type="button" data-step="previous" aria-label="Previous hop">←</button>
-              <button type="button" data-step="next" aria-label="Next hop" disabled>→</button>
-              <button type="button" data-panel-close aria-label="Close panel">✕</button>
-            </div>
-          </div>
-          <div class="detail-heading">
-            <div><h2 data-detail-title>Coinsphere hot wallet</h2><span class="detail-chip canvas-chip-green" data-detail-chip><i></i><b>Verified VASP</b></span></div>
-            <p data-detail-subtitle>Registered VASP, Coinsphere Global Pte Ltd</p>
-            <div class="detail-address"><span class="mono" data-detail-address title="{{ hot_wallet_address }}" aria-label="Custodian hot-wallet address: {{ hot_wallet_address }}">{{ hot_wallet_address[:13] }}...{{ hot_wallet_address[-6:] }}</span><button type="button" data-copy-address aria-label="Copy full custodian hot-wallet address {{ hot_wallet_address }}">Copy</button></div>
-          </div>
-          <div class="detail-tabs" role="tablist" aria-label="Hop detail views">
-            <button type="button" role="tab" aria-selected="true" data-panel-tab="overview">Overview</button>
-            <button type="button" role="tab" aria-selected="false" data-panel-tab="transactions">Transactions (2)</button>
-            <button type="button" role="tab" aria-selected="false" data-panel-tab="attribution">Attribution</button>
-            <button type="button" role="tab" aria-selected="false" data-panel-tab="notes">Notes</button>
-          </div>
-          <div class="detail-scroll" data-detail-content></div>
-        </aside>
       </div>
       <span class="canvas-bottom-space" aria-hidden="true"></span>
       {% include "_trace_explainability.html" %}

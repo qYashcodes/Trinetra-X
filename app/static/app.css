@@ -325,6 +325,10 @@ p { margin: 0 0 10px; }
   margin-top: 20px;
 }
 .login-actions form { margin: 0; }
+.prototype-account-grid {
+  display: grid;
+  gap: 8px;
+}
 .login-button {
   width: 376px;
   height: 49px;
@@ -370,10 +374,25 @@ p { margin: 0 0 10px; }
   letter-spacing: 0;
 }
 .login-button-prototype {
+  justify-content: space-between;
+  padding: 0 14px;
   background: #f8fafc;
   border-color: var(--border);
   color: #071833;
   font-weight: 500;
+}
+.login-button-prototype span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.login-button-prototype small {
+  flex: none;
+  color: var(--slate);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 .login-button-prototype:hover {
   background: #fff;
@@ -1308,6 +1327,7 @@ body.authenticated-session {
 .officer-badge strong { color: var(--ink); font-size: 12px; }
 .officer-badge small { max-width: 280px; color: var(--slate); font-size: 10.5px; }
 .session-controls form { margin: 0; }
+.session-switch-form { display: inline-flex; }
 .session-link,
 .session-signout {
   min-height: 32px;
@@ -1324,6 +1344,10 @@ body.authenticated-session {
   background: #fff;
 }
 .session-link:hover { background: var(--subtle); text-decoration: none; }
+.session-switch {
+  border-color: #bfd1ea;
+  color: var(--navy);
+}
 .session-signout { border-color: var(--navy); }
 .session-shield {
   position: fixed;

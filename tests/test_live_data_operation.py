@@ -18,7 +18,7 @@ import app.repository as repository
 import app.services.live_tron_resume as resume_module
 from app.engine_bridge import AssetRef, ChainRef, TraceParams, TraceSeed, run_trace
 from app.main import app, evidence_manifest
-from app.models import CanonicalTraceEvent, Case, FrontierItem, TraceEvent, TraceSnapshot
+from app.models import CanonicalTraceEvent, Case, Finding, FrontierItem, TraceEvent, TraceSnapshot
 from app.repository import get_or_create_trace
 from app.services.frontier import lease_frontier_batch
 from app.services.live_trace import (
@@ -457,11 +457,20 @@ def test_live_intake_route_mode_banner_status_and_retrace(
         ts_ms=SEED_TS + 1_000,
         source=SEED_ADDRESS,
         destination=NEXT_ADDRESS,
-        amount_base=500_000,
+        amount_base=10_000_000,
     )
 
     def fake_fetch(address: str, **_kwargs):
         return [seed_row, outgoing] if address == SEED_ADDRESS else []
+
+    def fake_balance(address: str, **_kwargs):
+        amount = 42_000_000 if address == NEXT_ADDRESS else 2_000_000
+        return {
+            "amount_base": amount,
+            "retrieval_ts_ms": SEED_TS + 2_000,
+            "raw_sha256": "balance-hash",
+            "provider_request_ref": "balance-request",
+        }
 
     app.dependency_overrides[main_module.get_session] = session_override
     monkeypatch.setattr(main_module, "append_audit_event", lambda *args, **kwargs: {})
@@ -483,6 +492,7 @@ def test_live_intake_route_mode_banner_status_and_retrace(
     )
     monkeypatch.setattr(tron, "verify_seed_transfer", lambda **_kwargs: {"event_name": "Transfer"})
     monkeypatch.setattr(tron, "fetch_trc20_transfers", fake_fetch)
+    monkeypatch.setattr(tron, "fetch_trc20_balance", fake_balance)
     try:
         with TestClient(app) as client:
             assert client.post("/auth/prototype", data={"role": "io"}).status_code == 200
@@ -511,11 +521,16 @@ def test_live_intake_route_mode_banner_status_and_retrace(
             assert trace.status_code == 200
             assert "LIVE PROVIDER MODE" in trace.text
             assert "Sealed bounds" in trace.text
+            assert "10.00 USDT" in trace.text
+            assert "Attributed share 1.00 USDT" in trace.text
             assert "Provider proof" in trace.text
             assert "Projected classification" in trace.text
             assert HEURISTIC_DISCLAIMER in trace.text
             assert "Feature gates" in trace.text
             assert "Burner classification: disabled" in trace.text
+            assert "View custody finding" in trace.text
+            assert "No custody finding is recorded for this live snapshot." in trace.text
+            assert 'href="/findings/' not in trace.text
             snapshot_id = int(started.headers["location"].rsplit("/", 1)[-1])
             status = client.get(f"/api/traces/{snapshot_id}/status").json()
             assert status["mode"] == "live"
@@ -531,15 +546,59 @@ def test_live_intake_route_mode_banner_status_and_retrace(
                 assert live_case.reported_address == SEED_ADDRESS
                 assert live_case.amount_reported_base == SEED_AMOUNT
                 assert live_case.payment_ts_ms == SEED_TS
+                hop = live_snapshot.result_json["hops"][0]
+                assert hop["observed_amount_base"] == 10_000_000
+                assert hop["value_base"] == SEED_AMOUNT
+                canonical = session.exec(
+                    select(CanonicalTraceEvent).where(CanonicalTraceEvent.snapshot_id == snapshot_id)
+                ).all()
+                assert [row.amount_base for row in canonical] == [10_000_000]
             mismatched_canvas = client.get(f"/cases/1/canvas?snapshot={snapshot_id}")
             assert mismatched_canvas.status_code == 404
             canvas = client.get(f"/cases/{live_case_id}/canvas?snapshot={snapshot_id}")
             assert canvas.status_code == 200
             assert "Confirmed fund-flow canvas" in canvas.text
+            assert "Reported / attributed at frontier" in canvas.text
+            assert "Confirmed transfer" in canvas.text
+            assert "Attributed share 1.00 USDT" in canvas.text
+            assert 'data-omega-graph' in canvas.text
+            assert '/static/omega-graph.js' in canvas.text
+            assert 'omega-graph-viewport' in canvas.text
+            assert '"available": true' in canvas.text
+            assert '"value": 42000000' in canvas.text
             assert "VASP hot wallet" not in canvas.text
+            graph_js = client.get("/static/omega-graph.js")
+            assert graph_js.status_code == 200
+            assert "edgeWidth" in graph_js.text
+            assert "data-omega-zoom" in graph_js.text
+            assert "Balance source" in graph_js.text
             manifest = client.get(f"/api/cases/{live_case_id}/evidence-manifest").json()
             assert manifest["snapshot"]["trace_mode"] == "live"
             assert manifest["snapshot"]["params"]["max_depth"] == 1
+            with Session(engine) as session:
+                session.add(
+                    Finding(
+                        case_id=live_case_id,
+                        snapshot_id=snapshot_id,
+                        terminal_kind="vasp_deposit",
+                        custodian_key="certified-live-custodian",
+                        deposit_address=NEXT_ADDRESS,
+                        amount_credited_base=SEED_AMOUNT,
+                        created_ts_ms=SEED_TS + 3_000,
+                    )
+                )
+                session.commit()
+                finding = session.exec(
+                    select(Finding).where(Finding.snapshot_id == snapshot_id)
+                ).one()
+                finding_id = int(finding.id)
+            trace_with_finding = client.get(f"/traces/{snapshot_id}")
+            assert trace_with_finding.status_code == 200
+            assert f'href="/findings/{finding_id}"' in trace_with_finding.text
+            assert "View custody finding" in trace_with_finding.text
+            assert "No custody finding is recorded for this live snapshot." not in trace_with_finding.text
+            canvas_with_finding = client.get(f"/cases/{live_case_id}/canvas?snapshot={snapshot_id}")
+            assert f'href="/findings/{finding_id}"' in canvas_with_finding.text
 
             retrace_token = re.search(r'name="csrf_token" value="([^"]+)"', trace.text)
             assert retrace_token

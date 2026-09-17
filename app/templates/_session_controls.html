@@ -1,4 +1,5 @@
 {% set idle = session_idle | default({'obscure_seconds': 120, 'warning_seconds': 780, 'timeout_seconds': 900}, true) %}
+{% set switch_next_url = (request.url.path ~ ('?' ~ request.url.query if request.url.query else '')) if request is defined else '/docket' %}
 <header
   class="session-controls"
   data-session-controls
@@ -19,6 +20,17 @@
     </span>
   </div>
   <a class="session-link" href="/sessions">Sessions</a>
+  <form method="post" action="/auth/prototype" class="session-switch-form">
+    {% if user.role == 'supervisor' %}
+    <input type="hidden" name="role" value="io">
+    <input type="hidden" name="next_url" value="{{ switch_next_url }}">
+    <button class="session-link session-switch" type="submit">Switch to IO</button>
+    {% else %}
+    <input type="hidden" name="role" value="supervisor">
+    <input type="hidden" name="next_url" value="{{ switch_next_url }}">
+    <button class="session-link session-switch" type="submit">Switch to ACP</button>
+    {% endif %}
+  </form>
   <form method="post" action="/auth/logout">
     <input type="hidden" name="csrf_token" value="{{ csrf_token | default('', true) }}">
     <button class="session-signout" type="submit">Sign out</button>

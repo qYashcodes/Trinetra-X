@@ -22,12 +22,15 @@ from app.models import (
     Case,
     CaseStage,
     CustodyAssertion,
+    Dispatch,
     Finding,
     FrontierItem,
     Notice,
+    NoticeTrackerEvent,
     SourceCoverage,
     TraceEvent,
     TraceSnapshot,
+    VaspResponse,
 )
 from app.services.accounting import ValueOutcome, conservation_report
 from app.services.demo import demo_case
@@ -320,10 +323,11 @@ def prepare_notice(session: Session, finding: Finding, created_by_pis: str) -> N
     if existing:
         return existing
     data = demo_case()
+    notice_no = _unique_notice_no(session, data["notice"]["notice_no"], finding)
     notice = Notice(
         case_id=finding.case_id,
         finding_id=finding.id,
-        notice_no=data["notice"]["notice_no"],
+        notice_no=notice_no,
         deadline_hours=data["notice"]["deadline_hours"],
         created_by_pis=created_by_pis,
         created_ts_ms=now_ms(),
@@ -337,6 +341,69 @@ def prepare_notice(session: Session, finding: Finding, created_by_pis: str) -> N
     session.commit()
     session.refresh(notice)
     return notice
+
+
+def reset_demo_notice_workflow(session: Session) -> dict[str, int]:
+    data = demo_case()
+    ack_no = str(data["case"]["ack_no"])
+    cases = session.exec(select(Case).where(Case.ack_no == ack_no)).all()
+    reset_at = now_ms()
+    summary = {
+        "cases": 0,
+        "notices": 0,
+        "dispatches": 0,
+        "tracker_events": 0,
+        "vasp_responses": 0,
+    }
+    for case in cases:
+        notices = session.exec(select(Notice).where(Notice.case_id == case.id)).all()
+        if not notices:
+            continue
+        summary["cases"] += 1
+        case.stage = CaseStage.notice_draft
+        case.updated_ts_ms = reset_at
+        session.add(case)
+        for notice in notices:
+            dispatches = session.exec(select(Dispatch).where(Dispatch.notice_id == notice.id)).all()
+            tracker_events = session.exec(
+                select(NoticeTrackerEvent).where(NoticeTrackerEvent.notice_id == notice.id)
+            ).all()
+            responses = session.exec(
+                select(VaspResponse).where(VaspResponse.notice_id == notice.id)
+            ).all()
+            for row in [*dispatches, *tracker_events, *responses]:
+                session.delete(row)
+            summary["dispatches"] += len(dispatches)
+            summary["tracker_events"] += len(tracker_events)
+            summary["vasp_responses"] += len(responses)
+            notice.status = "draft"
+            notice.deadline_hours = 24
+            notice.pdf_sha256 = None
+            notice.countersigned_by_pis = None
+            notice.countersigned_ts_ms = None
+            notice.tracker_status = "drafted"
+            notice.tracker_sub_outcome = None
+            notice.tracker_last_note = None
+            notice.tracker_updated_ts_ms = None
+            notice.dispatched_ts_ms = None
+            session.add(notice)
+            summary["notices"] += 1
+    if summary["notices"]:
+        session.commit()
+    return summary
+
+
+def _unique_notice_no(session: Session, base_notice_no: str, finding: Finding) -> str:
+    existing = session.exec(select(Notice).where(Notice.notice_no == base_notice_no)).first()
+    if existing is None or existing.finding_id == finding.id:
+        return base_notice_no
+    finding_part = int(finding.id or finding.case_id)
+    candidate = f"{base_notice_no}-F{finding_part}"
+    suffix = 2
+    while session.exec(select(Notice).where(Notice.notice_no == candidate)).first():
+        candidate = f"{base_notice_no}-F{finding_part}-{suffix}"
+        suffix += 1
+    return candidate
 
 
 def _events_from_result(result: dict) -> list[dict]:
@@ -397,7 +464,7 @@ def _add_evidence_projection(
                 source_address=hop.get("source_address")
                 or (hops[index - 1]["address"] if index > 0 else None),
                 destination_address=hop.get("address"),
-                amount_base=_int_or_zero(hop.get("value_base")),
+                amount_base=_canonical_transfer_amount_base(hop),
                 success=True,
                 finality="fixture_final"
                 if result.get("engine", {}).get("mode") == "fixture"
@@ -648,6 +715,17 @@ def _add_trace_lots_and_frontier(
                 updated_ts_ms=created_ts_ms,
             )
         )
+
+
+def _canonical_transfer_amount_base(hop: dict) -> int:
+    amount = (
+        hop.get("observed_amount_base")
+        if hop.get("observed_amount_base") is not None
+        else hop.get("amount_base")
+        if hop.get("amount_base") is not None
+        else hop.get("value_base")
+    )
+    return _int_or_zero(amount)
 
 
 def _add_custody_assertion(

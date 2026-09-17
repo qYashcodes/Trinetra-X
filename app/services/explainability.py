@@ -343,6 +343,17 @@ def _terminal_explanation(
         "stronger_outcome_requires": _stronger_outcome_requirement(terminal),
         "source_coverage": _coverage_refs(coverage),
     }
+    terminal_kind = str(terminal.get("kind") or "unknown").replace("_", " ")
+    terminal_address = terminal.get("deposit_address") or terminal.get("current_address") or "the boundary address"
+    action_guidance = (
+        "Prepare or send the notice only after the officer confirms the lawful authority, countersignature gate and dispatch evidence. "
+        "The account/deposit role is an investigative lead; it does not identify a person or prove guilt."
+        if finding_permitted
+        else (
+            "No notice should be prepared from this terminal alone. Resume or re-run the trace, request stronger provider evidence, "
+            "or keep the case at the recorded evidence boundary."
+        )
+    )
     return _item(
         item_id="terminal",
         kind="terminal",
@@ -351,16 +362,32 @@ def _terminal_explanation(
         amount_base=amount,
         asset=asset,
         investigator=[
-            _section("Why was this path followed?", "The terminal records the bounded outcome after all selected work and retained deferrals."),
-            _section("Where did this attributed amount come from?", "The terminal amount is included only when the terminal evidence permits it.", facts),
+            _section(
+                "Why was this path followed?",
+                (
+                    "The trace reached the recorded terminal after following the selected evidence path and keeping unexpanded branches in the case record. "
+                    f"The terminal type is {terminal_kind}."
+                ),
+            ),
+            _section(
+                "Where did this attributed amount come from?",
+                "Any terminal amount is carried from the traced transfers as integer base units and is shown only when the terminal evidence allows it.",
+                facts,
+            ),
             _section(
                 "What is this address, and what is it not?",
-                "A terminal address has only the role supported by the terminal evidence. A deposit address and a hot wallet remain different objects.",
+                (
+                    f"{terminal_address} is recorded only in the role supported by the trace evidence. "
+                    "A deposit address, customer account and exchange hot wallet remain separate legal objects; this is not a person identity or a finding of guilt."
+                ),
             ),
             _section(
                 "Why did the trace end here?",
-                f"Terminal {terminal.get('kind')} maps to case stage {stage}. "
-                f"A custody finding is {'permitted' if finding_permitted else 'not permitted'} by this terminal.",
+                (
+                    f"This terminal maps to case stage {stage}. "
+                    f"A custody finding is {'permitted' if finding_permitted else 'not permitted'} by this terminal. "
+                    f"{action_guidance}"
+                ),
                 facts,
             ),
             _section("What is this based on?", str(terminal.get("note") or "No terminal note was recorded."), facts),

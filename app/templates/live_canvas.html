@@ -1,16 +1,53 @@
 {% extends "base.html" %}
 {% block title %}Live investigator canvas · TRINETRA{% endblock %}
-{% block page_styles %}<link rel="stylesheet" href="/static/live.css"><link rel="stylesheet" href="/static/explainability.css">{% endblock %}
-{% block page_scripts %}<script defer src="/static/explainability.js"></script>{% endblock %}
+{% block page_styles %}<link rel="stylesheet" href="/static/live.css"><link rel="stylesheet" href="/static/omega-graph.css"><link rel="stylesheet" href="/static/explainability.css">{% endblock %}
+{% block page_scripts %}<script defer src="/static/omega-graph.js"></script><script defer src="/static/explainability.js"></script>{% endblock %}
 {% block breadcrumb %}<div class="breadcrumb"><span>Investigations</span><b>/</b><span>Canvas</span><b>/</b><strong class="mono">{{ case.ack_no }}</strong></div>{% endblock %}
 {% block content %}
 {% set result = snapshot.result_json %}
+{% set result_case = result.get('case', {}) %}
+{% set result_params = result.get('params', {}) %}
+{% set result_stats = result.get('stats', {}) %}
+{% set result_terminal = result.get('terminal', {}) %}
+{% set reported_base = result_case.get('amount_reported_base') if result_case.get('amount_reported_base') is not none else case.amount_reported_base %}
+{% set retained_base = result.hops[-1].value_base if result.hops else reported_base %}
+{% set started_ms = result_case.get('payment_ts') if result_case.get('payment_ts') is not none else result_case.get('payment_ts_ms') %}
 <section class="live-canvas">
   {% include "_trace_mode_banner.html" %}
-  <header class="live-canvas-heading"><div><span>Snapshot {{ snapshot.id }}</span><h1>Confirmed fund-flow canvas</h1></div><div><button class="trace-explain-trigger" type="button" data-explain-target="methodology">Explain trace</button><a href="/traces/{{ snapshot.id }}">Trace details</a></div></header>
+  <header class="live-canvas-heading"><div><span>Snapshot {{ snapshot.id }}</span><h1>Confirmed fund-flow canvas</h1></div><div><button class="trace-explain-trigger" type="button" data-explain-target="methodology">Explain trace</button>{% if finding is defined and finding %}<a href="/findings/{{ finding.id }}">Custody finding</a>{% endif %}<a href="/traces/{{ snapshot.id }}">Trace details</a></div></header>
   <div class="freshness-strip {{ 'stale' if runtime_status.data_freshness.stale else '' }}" data-explain-target="seed" role="button" tabindex="0"><span><i></i><b>{% if runtime_status.data_freshness.chain_data_as_of_ms %}Chain data as of {{ runtime_status.data_freshness.chain_data_as_of_ms | ist }}{% else %}No provider timestamp recorded{% endif %}</b></span><em>{{ 'Refresh recommended' if runtime_status.data_freshness.stale else 'Current within configured window' }}</em></div>
-  {% set seed_read_ts = result.seed_match.retrieval_ts_ms or runtime_status.data_freshness.chain_data_as_of_ms %}{% set seed_stale = seed_read_ts and seed_read_ts < runtime_status.data_freshness.stale_cutoff_ms %}<section class="live-flow" aria-label="Confirmed attributed path"><article class="live-flow-node seed {{ 'stale-node' if seed_stale else '' }}" data-explain-target="seed" role="button" tabindex="0"><span>Seed</span><strong class="mono">{{ case.reported_address }}</strong><small>{{ result.case.amount_reported_base | amount }}</small><time>{% if seed_read_ts %}Read {{ seed_read_ts | ist }}{{ ' · stale' if seed_stale else '' }}{% else %}Retrieval time unavailable{% endif %}</time></article>{% for hop in result.hops %}{% set read_ts = hop.retrieval_ts_ms or runtime_status.data_freshness.chain_data_as_of_ms %}{% set read_stale = read_ts and read_ts < runtime_status.data_freshness.stale_cutoff_ms %}<i class="live-flow-arrow" aria-hidden="true">→</i><article class="live-flow-node {{ 'stale-node' if read_stale else '' }}" data-explain-target="hop:{{ loop.index0 }}" role="button" tabindex="0"><span>H{{ hop.hop }} · {{ hop.frontier_state | labelize }}</span><strong class="mono">{{ hop.address }}</strong><small>{{ hop.value_base | amount }} · {{ hop.ts_ms | ist }}</small><time>{% if read_ts %}Read {{ read_ts | ist }}{{ ' · stale' if read_stale else '' }}{% else %}Retrieval time unavailable{% endif %}</time></article>{% endfor %}{% if not result.hops %}<i class="live-flow-arrow" aria-hidden="true">→</i><article class="live-flow-node boundary" data-explain-target="terminal" role="button" tabindex="0"><span>Boundary</span><strong>{{ result.terminal.kind | labelize }}</strong><small>No onward confirmed attribution</small></article>{% endif %}</section>
-  <div class="live-canvas-lower"><section><header><h2>Parked and deferred branches</h2><span>{{ result.parked | length }}</span></header><table><thead><tr><th>Destination</th><th>Attributed value</th><th>Reason</th><th>Observed</th></tr></thead><tbody>{% for item in result.parked %}<tr data-explain-target="parked:{{ loop.index0 }}" role="button" tabindex="0"><td class="mono">{{ item.address }}</td><td class="mono">{{ item.value_base | amount }}</td><td>{{ item.deferral_reason | labelize }}</td><td class="mono">{{ item.ts_ms | ist }}</td></tr>{% else %}<tr><td colspan="4">No branches were parked in this snapshot.</td></tr>{% endfor %}</tbody></table></section><aside data-explain-target="methodology" role="button" tabindex="0"><h2>Search boundary</h2><dl>{% for key, value in result.params.items() if key not in ['trace_mode', 'include_unconfirmed'] %}<div><dt>{{ key | labelize }}</dt><dd class="mono">{{ value }}</dd></div>{% endfor %}</dl><p>{{ result.terminal.note }}</p></aside></div>
+  <section class="live-canvas-casebar" aria-label="Case summary">
+    <div class="live-canvas-case-main">
+      <div><h2>{{ case.ack_no }}</h2><span class="terminal-chip small">{{ result.outcome.status | default(result_terminal.kind, true) | labelize }}</span></div>
+      <p>Reported / attributed at frontier: <b class="mono">{{ reported_base | amount }}</b> / <b class="mono">{{ retained_base | amount }}</b></p>
+    </div>
+    <dl>
+      <div><dt>Chain</dt><dd class="mono">{{ result.chain.family | default(case.chain, true) }}</dd></div>
+      <div><dt>Asset</dt><dd class="mono">{{ result.asset.symbol | default(case.asset_symbol, true) }}</dd></div>
+      <div><dt>Total hops</dt><dd class="mono">{{ result.hops | length }}</dd></div>
+      <div><dt>Transfers</dt><dd class="mono">{{ result_stats.get('transfers_read', result.hops | length) }}</dd></div>
+      <div><dt>Started</dt><dd class="mono">{% if started_ms is not none %}{{ started_ms | ist }}{% else %}Not recorded{% endif %}</dd></div>
+    </dl>
+  </section>
+  <section class="live-canvas-strategy" aria-label="Trace strategy">
+    <div><b>Trace strategy</b><span class="mono">{{ result_params.get('strategy', 'dominant_fund_flow') | labelize }}</span></div>
+    <div><small>Value threshold</small><span class="mono">>= {{ result_params.get('value_floor_share', '0.02') }}</span></div>
+    <div><small>Stop at</small><span>{{ result_terminal.kind | default('trace_boundary', true) | labelize }}</span></div>
+    <div><small>Parked</small><span class="mono">{{ result.parked | length }} branches</span></div>
+  </section>
+  {% include "_omega_graph.html" %}
+  <section class="live-canvas-timeline" aria-label="Trace timeline">
+    <header><h2>Trace timeline</h2><span class="mono">{{ result.hops | length }} confirmed hops</span></header>
+    <ol>
+      <li data-explain-target="seed" role="button" tabindex="0"><b>Seed payment</b><strong class="mono">{{ reported_base | amount }}</strong><small>{% if started_ms is not none %}{{ started_ms | ist }}{% else %}Time not recorded{% endif %}</small></li>
+      {% for hop in result.hops %}
+      {% set confirmed_base = hop.get('observed_amount_base') if hop.get('observed_amount_base') is not none else hop.get('value_base') %}
+      <li data-explain-target="hop:{{ loop.index0 }}" role="button" tabindex="0"><b>H{{ hop.hop }} {{ hop.frontier_state | labelize }}</b><strong class="mono">{{ confirmed_base | amount }}</strong><small>Attributed share {{ hop.value_base | amount }}</small><small>{{ hop.address[:8] }}...{{ hop.address[-6:] }}</small></li>
+      {% endfor %}
+      <li data-explain-target="terminal" role="button" tabindex="0"><b>{{ result_terminal.kind | default('Trace boundary', true) | labelize }}</b><strong>{{ result.outcome.stage | default('Trace incomplete', true) | labelize }}</strong><small>{{ result_terminal.note | default('No terminal note recorded.', true) }}</small></li>
+    </ol>
+  </section>
+  <div class="live-canvas-lower"><section><header><h2>Parked and deferred branches</h2><span>{{ result.parked | length }}</span></header><table><thead><tr><th>Destination</th><th>Confirmed transfer</th><th>Attributed share</th><th>Reason</th><th>Observed</th></tr></thead><tbody>{% for item in result.parked %}{% set confirmed_base = item.get('observed_amount_base') if item.get('observed_amount_base') is not none else item.get('value_base') %}<tr data-explain-target="parked:{{ loop.index0 }}" role="button" tabindex="0"><td class="mono">{{ item.address }}</td><td class="mono">{{ confirmed_base | amount }}</td><td class="mono">{{ item.value_base | amount }}</td><td>{{ item.deferral_reason | labelize }}</td><td class="mono">{{ item.ts_ms | ist }}</td></tr>{% else %}<tr><td colspan="5">No branches were parked in this snapshot.</td></tr>{% endfor %}</tbody></table></section><aside data-explain-target="methodology" role="button" tabindex="0"><h2>Search boundary</h2><dl>{% for key, value in result.params.items() if key not in ['trace_mode', 'include_unconfirmed'] %}<div><dt>{{ key | labelize }}</dt><dd class="mono">{{ value }}</dd></div>{% endfor %}</dl><p>{{ result.terminal.note }}</p></aside></div>
   {% if result.unconfirmed_observations %}<section class="unconfirmed-channel"><header><div><span>Observation channel</span><h2>Unconfirmed transfers</h2></div><strong>Excluded from this graph and attribution</strong></header>{% for item in result.unconfirmed_observations %}<article><b>{{ item.status | labelize }}</b><span class="mono">{{ item.txid | default('No transaction returned', true) }}</span><p>{{ item.warning }}</p></article>{% endfor %}</section>{% endif %}
   {% include "_trace_explainability.html" %}
 </section>

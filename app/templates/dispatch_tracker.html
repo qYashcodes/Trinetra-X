@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Dispatch tracker · TRINETRA{% endblock %}
+{% block body_class %}dispatch-tracker-page{% endblock %}
+{% block page_styles %}
+  <link rel="stylesheet" href="/static/workspace-shell.css">
+  <link rel="stylesheet" href="/static/dispatch-tracker.css">
+{% endblock %}
+
+{% block authenticated %}
+<div class="dispatch-tracker-app">
+  {% set active_page = 'dispatch_tracker' %}
+  {% include "_workspace_nav.html" %}
+  <main class="dispatch-tracker-shell" aria-label="Dispatch tracker">
+    <header class="dispatch-tracker-head">
+      <div>
+        <span>Outputs</span>
+        <h1>Dispatch tracker</h1>
+        <p>Manual officer updates for VASP notice follow-up. Dispatch is a pending state; it does not confirm restraint.</p>
+      </div>
+      <dl class="tracker-counts" aria-label="Tracker counts">
+        <div><dt>Total</dt><dd class="mono">{{ counts.total }}</dd></div>
+        <div><dt>Pending</dt><dd class="mono">{{ counts.pending }}</dd></div>
+        <div><dt>Overdue</dt><dd class="mono alert">{{ counts.overdue }}</dd></div>
+        <div><dt>Responded</dt><dd class="mono">{{ counts.responded }}</dd></div>
+      </dl>
+    </header>
+
+    <form class="tracker-filters" method="get" action="/dispatch-tracker" aria-label="Tracker filters">
+      <label><span>Status</span><select name="status">
+        <option value="">All statuses</option>
+        {% for key, label in status_labels.items() %}
+        <option value="{{ key }}"{{ ' selected' if filters.status == key else '' }}>{{ label }}</option>
+        {% endfor %}
+      </select></label>
+      <label><span>VASP</span><input name="vasp" value="{{ filters.vasp }}" placeholder="Coinsphere"></label>
+      <label><span>Case</span><input name="case" value="{{ filters.case }}" placeholder="NCRP reference"></label>
+      <button type="submit">Apply</button>
+      <a href="/dispatch-tracker">Clear</a>
+    </form>
+
+    <section class="tracker-table-wrap" aria-label="Tracked dispatch notices">
+      <table class="tracker-table">
+        <thead>
+          <tr>
+            <th>Notice</th>
+            <th>Case / VASP</th>
+            <th>Dispatch</th>
+            <th>Deadline</th>
+            <th>Status</th>
+            <th>Manual update</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr class="tracker-row status-{{ row.effective_status }}">
+            <td>
+              <a href="/notices/{{ row.notice_id }}">{{ row.notice_no }}</a>
+              <small class="mono">ID {{ row.notice_id }}</small>
+            </td>
+            <td>
+              <strong>{{ row.case_ref }}</strong>
+              <span>{{ row.vasp_label }}</span>
+              <small class="mono" title="{{ row.deposit_address }}">{{ row.deposit_address[:8] }}...{{ row.deposit_address[-6:] if row.deposit_address else '' }}</small>
+            </td>
+            <td>
+              <span>{% if row.dispatch_ts_ms %}{{ row.dispatch_ts_ms | ist }}{% else %}Not dispatched{% endif %}</span>
+              <small>{{ row.dispatches | length }} channel{{ '' if (row.dispatches | length) == 1 else 's' }}</small>
+            </td>
+            <td>
+              <span>{% if row.deadline_ts_ms %}{{ row.deadline_ts_ms | ist }}{% else %}No active deadline{% endif %}</span>
+              <small>{{ row.time_label }}</small>
+            </td>
+            <td>
+              <b>{{ row.status_label }}</b>
+              <small>{{ row.manual_notice }}</small>
+              {% if row.sub_outcome_label %}<small>{{ row.sub_outcome_label }}</small>{% endif %}
+              {% if row.last_note %}<em>{{ row.last_note }}</em>{% endif %}
+            </td>
+            <td>
+              <form class="tracker-update-form" method="post" action="/dispatch-tracker/{{ row.notice_id }}/status">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <select name="tracker_status" aria-label="New status for {{ row.notice_no }}">
+                  {% for key, label in status_labels.items() if key != 'overdue' %}
+                  <option value="{{ key }}"{{ ' selected' if row.base_status == key else '' }}>{{ label }}</option>
+                  {% endfor %}
+                </select>
+                <select name="sub_outcome" aria-label="Response outcome">
+                  <option value="">No response outcome</option>
+                  {% for key, label in response_sub_outcomes.items() %}
+                  <option value="{{ key }}"{{ ' selected' if row.sub_outcome == key else '' }}>{{ label }}</option>
+                  {% endfor %}
+                </select>
+                <input name="note" placeholder="Officer note" value="">
+                <button type="submit">Save</button>
+              </form>
+              <form class="tracker-escalate-form" method="post" action="/dispatch-tracker/{{ row.notice_id }}/escalate">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input name="note" placeholder="Escalation note">
+                <button type="submit">Escalate</button>
+              </form>
+              <details>
+                <summary>History</summary>
+                {% for event in row.events %}
+                <article>
+                  <b>{{ status_labels.get(event.to_status, event.to_status) }}</b>
+                  <span class="mono">{{ event.created_ts_ms | ist }}</span>
+                  <small>Officer PIS {{ event.actor_pis }}</small>
+                  {% if event.note %}<p>{{ event.note }}</p>{% endif %}
+                </article>
+                {% else %}
+                <p>No tracker history recorded yet.</p>
+                {% endfor %}
+              </details>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6">No notices match the selected filters.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  </main>
+</div>
+{% endblock %}

@@ -1,0 +1,39 @@
+<section class="omega-graph-card" data-omega-graph aria-label="Trace graph exhibit">
+  <script type="application/json" data-omega-graph-json>{{ omega_graph | tojson }}</script>
+  <div class="omega-graph-workbench">
+    <div class="omega-graph-stage">
+      <header class="omega-graph-header">
+        <div>
+          <span>Graph view</span>
+          <h2>{{ omega_graph.title | default('Transaction flow') }}</h2>
+          <p>{{ omega_graph.subtitle | default('Drag empty space to pan. Scroll to zoom. Select a node or edge for details.') }}</p>
+        </div>
+        <div class="omega-graph-actions">
+          <button type="button" data-omega-toggle="values" role="switch" aria-checked="true">Values</button>
+          <button type="button" data-omega-toggle="parked" role="switch" aria-checked="true">Parked</button>
+          <button type="button" data-omega-zoom="in" aria-label="Zoom in">+</button>
+          <button type="button" data-omega-zoom="out" aria-label="Zoom out">-</button>
+          <button type="button" data-omega-zoom="fit">Fit</button>
+          <button type="button" data-omega-zoom="reset">Reset</button>
+        </div>
+      </header>
+      <div class="omega-graph-viewport" data-omega-viewport tabindex="0" aria-label="Trace graph exhibit">
+        <svg data-omega-svg role="img" aria-label="Flow-weighted transaction graph"></svg>
+      </div>
+    </div>
+    <aside class="omega-graph-side">
+      <section class="omega-graph-details" aria-label="Selected graph detail">
+        <h2>Selected details</h2>
+        <div data-omega-details><p class="omega-muted">Select a graph node or transfer edge.</p></div>
+      </section>
+      <section class="omega-graph-legend" aria-label="Graph legend">
+        <h2>Legend</h2>
+        <span><i class="omega-box seed"></i>Reported seed</span>
+        <span><i class="omega-box hop"></i>Expanded hop</span>
+        <span><i class="omega-box deferred"></i>Parked branch</span>
+        <span><i class="omega-box terminal"></i>Terminal metadata</span>
+        <span><i class="omega-line"></i>On-chain transfer</span>
+      </section>
+    </aside>
+  </div>
+</section>

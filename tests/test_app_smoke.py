@@ -64,6 +64,9 @@ def test_fixture_workflow_pages_render() -> None:
         login = client.get("/login")
         assert login.status_code == 200
         assert "PROTOTYPE BASED LOGIN" in login.text
+        assert "Sign in as Insp. R. Kulkarni" in login.text
+        assert "Sign in as ACP S. Deshmukh" in login.text
+        assert "Countersignature officer" in login.text
         assert "Sign in with CCTNS" in login.text
         assert "Sign in with SAHYOG Portal" in login.text
         assert 'href="https://cctns.megpolice.gov.in/Login.aspx"' in login.text
@@ -71,11 +74,18 @@ def test_fixture_workflow_pages_render() -> None:
         assert 'href="https://parichay.nic.in/pnv1/assets/login?sid=1234567899"' in login.text
         assert "Sign in with Parichay" not in login.text
 
+        supervisor_login = client.get("/auth/prototype/supervisor")
+        assert supervisor_login.status_code == 200
+        assert "Supervisor view" in supervisor_login.text
+        assert "Sign in as ACP S. Deshmukh" in supervisor_login.text
+        assert "Return as Insp. R. Kulkarni" in supervisor_login.text
+
         response = client.post("/auth/prototype", data={"role": "io"}, follow_redirects=False)
         assert response.status_code == 303
 
         intake = client.get("/cases/new")
         assert intake.status_code == 200
+        assert "Switch to ACP" in intake.text
         assert "Open a case from a filed complaint" in intake.text
         assert "Particulars read from the complaint" in intake.text
         assert "4 complaints" in intake.text
@@ -145,10 +155,16 @@ def test_fixture_workflow_pages_render() -> None:
         trace = client.get("/traces/1")
         assert trace.status_code == 200
         assert "Live trace complete" in trace.text
+        assert "data-progress-value" not in trace.text
+        assert "data-progress-stage" in trace.text
 
         canvas = client.get("/cases/1/canvas?snapshot=1")
         assert canvas.status_code == 200
         assert "Trace graph exhibit" in canvas.text
+        assert 'data-omega-graph' in canvas.text
+        assert '/static/omega-graph.js' in canvas.text
+        assert 'href="/findings/1"' in canvas.text
+        assert "Open custody finding" in canvas.text
 
         risk = client.post(
             "/risk-check",
@@ -182,6 +198,9 @@ def test_fixture_workflow_pages_render() -> None:
         notice = client.get("/notices/1")
         assert notice.status_code == 200
         assert "Freeze and information preservation notice" in notice.text
+        tracker = client.get("/dispatch-tracker")
+        assert tracker.status_code == 200
+        assert "Dispatch tracker" in tracker.text
 
 
 def test_ingested_reference_becomes_active_working_case() -> None:
@@ -380,6 +399,7 @@ def test_sensitive_exports_require_authenticated_session() -> None:
             "/api/cases/1/evidence-manifest",
             "/api/cases/1/evidence-bundle.zip",
             "/api/notices/1/sahyog-export",
+            "/dispatch-tracker",
         ):
             response = client.get(path, follow_redirects=False)
             assert response.status_code == 303

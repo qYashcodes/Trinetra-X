@@ -52,7 +52,7 @@
       <header>
         <div>
           <h2>Resolved confirmed transfers</h2>
-          <p>Only confirmed events participate in integer attribution.</p>
+          <p>Primary amounts are confirmed provider transfers; attributed share is shown separately.</p>
         </div>
         <span class="mono">{{ result.hops | length }} hops</span>
       </header>
@@ -61,6 +61,8 @@
         {% for hop in result.hops %}
         {% set read_ts = hop.retrieval_ts_ms or runtime_status.data_freshness.chain_data_as_of_ms %}
         {% set read_stale = read_ts and read_ts < runtime_status.data_freshness.stale_cutoff_ms %}
+        {% set confirmed_base = hop.get('observed_amount_base') if hop.get('observed_amount_base') is not none else hop.get('value_base') %}
+        {% set attributed_base = hop.get('value_base') %}
         <li class="{{ 'stale-node' if read_stale else '' }}" data-explain-target="hop:{{ loop.index0 }}" role="button" tabindex="0">
           <span class="hop-index mono">H{{ hop.hop }}</span>
           <div>
@@ -68,7 +70,9 @@
             <small>From <span class="mono">{{ hop.source_address }}</span></small>
           </div>
           <div class="hop-value">
-            <b class="mono">{{ hop.value_base | amount }}</b>
+            <b class="mono">{{ confirmed_base | amount }}</b>
+            <small>Confirmed transfer</small>
+            <small>Attributed share {{ attributed_base | amount }}</small>
             <small>{{ hop.frontier_state | labelize }} - {{ hop.ts_ms | ist }}</small>
           </div>
           <time class="mono">{% if read_ts %}Read {{ read_ts | ist }}{{ ' - stale' if read_stale else '' }}{% else %}Retrieval time unavailable{% endif %}</time>
@@ -210,6 +214,11 @@
   <div>
     <button class="trace-explain-trigger" type="button" data-explain-target="methodology">Explain trace</button>
     <a href="/cases/{{ case.id }}/canvas?snapshot={{ snapshot.id }}">Open canvas</a>
+    {% if finding %}
+      <a href="/findings/{{ finding.id }}">View custody finding</a>
+    {% else %}
+      <button type="button" disabled title="No custody finding is recorded for this live snapshot.">View custody finding</button>
+    {% endif %}
     <form method="post" action="/traces/{{ snapshot.id }}/retrace">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <button type="submit">Refresh and re-trace</button>

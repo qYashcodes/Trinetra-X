@@ -88,9 +88,9 @@
               <h1 data-trace-heading>Following the funds</h1>
               <p data-trace-subheading>Each hop is written to the case record as it resolves. The graph builds in parallel.</p>
             </div>
-            <div class="trace-progress-copy"><b class="mono" data-progress-value>0%</b><span class="mono"><em data-elapsed>00:00</em> elapsed</span></div>
+            <div class="trace-progress-copy"><b data-progress-stage>Preparing trace</b><span class="mono"><em data-elapsed>00:00</em> elapsed</span></div>
           </div>
-          <div class="trace-progress-track" aria-label="Trace progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <div class="trace-progress-track" aria-label="Trace progress" role="progressbar">
             <i class="trace-progress-fill"></i><i class="trace-progress-scan"></i>
           </div>
           <div class="trace-worker">
@@ -119,7 +119,7 @@
               {% endfor %}
               {% if terminal_only %}
               <tr class="trace-hop-row" data-trace-row="1" data-explain-target="terminal" role="button" tabindex="0">
-                <td class="mono">--</td><td><i class="amber"></i><span>{{ terminal.kind | labelize }}</span></td><td class="mono">--<br>{{ snapshot_asset.symbol }}</td><td class="mono">0%</td><td class="mono">--</td><td class="amber-text">{{ terminal.note | default('Trace closed without custody evidence.') }}</td>
+                <td class="mono">--</td><td><i class="amber"></i><span>{{ terminal.kind | labelize }}</span></td><td class="mono">--<br>{{ snapshot_asset.symbol }}</td><td class="mono">--</td><td class="mono">--</td><td class="amber-text">{{ terminal.note | default('Trace closed without custody evidence.') }}</td>
               </tr>
               {% endif %}
               <tr class="trace-work-row"><td colspan="6"><i></i><span class="mono" data-work-line>expanding outbound set at hop 1 — 3 counterparties</span></td></tr>
