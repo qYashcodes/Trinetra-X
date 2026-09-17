@@ -58,3 +58,25 @@ def verify_audit_chain(path: Path | None = None) -> bool:
                 return False
             prev = row_hash
     return True
+
+
+def read_audit_events(
+    *,
+    subject: str | None = None,
+    actions: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    path = _audit_path()
+    if not path.exists():
+        return []
+    rows: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            if subject is not None and row.get("subject") != subject:
+                continue
+            if actions is not None and row.get("action") not in actions:
+                continue
+            rows.append(row)
+    return rows

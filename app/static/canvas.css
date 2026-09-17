@@ -126,6 +126,16 @@
 .canvas-chip-amber i { background: #c98a12; }
 .canvas-chip-slate { border-color: #dde3ec; background: #f1f4f8; color: #3c4a61; }
 .canvas-chip-slate i { background: #5c6880; }
+.canvas-chip-link {
+  padding: 4px 10px;
+  border-color: #b7cdf5;
+  background: #edf5ff;
+  color: #12325e;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.canvas-chip-link:hover { background: #dfeeff; color: #0b2750; }
 
 .canvas-stats {
   flex: 0 1 auto;
@@ -179,13 +189,13 @@
   padding: 13px 18px;
 }
 .canvas-strategy-title { width: 109px; flex: 0 0 109px; font-size: 16px; font-weight: 600; white-space: nowrap; }
+.strategy-select-wrap {
+  width: 210px;
+  flex: 0 0 210px;
+}
 .canvas-workspace .strategy-select {
   width: 187px;
   height: 38px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 9px;
   padding: 0 13px;
   border: 1px solid #cfd7e3;
   border-radius: 7px;
@@ -196,8 +206,17 @@
   white-space: nowrap;
 }
 .canvas-workspace .strategy-select:hover { border-color: #12325e; background: #fff; }
-.strategy-select > span:first-child { color: #2563eb; }
-.strategy-select small { color: #8a94a6; font-size: 11px; }
+.canvas-workspace .strategy-explain {
+  height: 38px;
+  padding: 0 13px;
+  border: 1px solid #12325e;
+  border-radius: 7px;
+  background: #fff;
+  color: #12325e;
+  font-size: 14px;
+  cursor: pointer;
+}
+.canvas-workspace .strategy-explain:hover { background: #f1f4f8; }
 .strategy-fact {
   min-height: 38px;
   display: flex;
@@ -225,6 +244,18 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+.canvas-left-column > .omega-graph-card {
+  flex: 1;
+  min-height: 0;
+}
+.canvas-left-column > .omega-graph-card .omega-graph-workbench {
+  min-height: 0;
+  height: 100%;
+}
+.canvas-left-column > .omega-graph-card .omega-graph-viewport {
+  height: 100%;
+  min-height: 360px;
 }
 .canvas-graph-card {
   flex: 1;
@@ -392,7 +423,11 @@
   align-self: end;
   justify-self: center;
   margin-bottom: 9px;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: #5c6880;
+  font-family: inherit;
   font-size: 10.5px;
   font-weight: 500;
   line-height: 1.25;

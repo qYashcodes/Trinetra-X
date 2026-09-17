@@ -6,26 +6,41 @@
     <img src="/static/trinetra-login-mark.svg" class="login-mark" alt="">
     <h1 id="login-title">TRINETRA</h1>
     <p class="login-product">Cryptocurrency Fund-Flow Attribution System</p>
-    <p class="login-meta">Restricted access · Government of India</p>
+    <p class="login-meta">Restricted access · Demonstration prototype</p>
 
     <div class="login-actions">
-      <a class="login-button login-button-primary" href="{{ settings.cctns_login_url }}" target="{{ settings.sso_link_target }}">
+      <a class="login-button login-button-primary" href="{{ settings.cctns_login_url }}" target="_self" rel="noreferrer" referrerpolicy="no-referrer">
         <span class="login-icon">CC</span>
         <span>Sign in with CCTNS</span>
+        <small>Integration pending</small>
       </a>
       <a class="login-button login-button-primary" href="{{ settings.sahyog_portal_url }}" target="{{ settings.sso_link_target }}">
         <span class="login-icon">SG</span>
         <span>Sign in with SAHYOG Portal</span>
+        <small>Integration pending</small>
       </a>
-      <form method="post" action="/auth/prototype">
+      <div class="prototype-account-grid" aria-label="Prototype demonstration accounts">
+        <form method="post" action="/auth/prototype">
         <input type="hidden" name="role" value="io">
-        <button class="login-button login-button-prototype" type="submit">PROTOTYPE BASED LOGIN</button>
-      </form>
+          <button class="login-button login-button-prototype" type="submit">
+            <span>Sign in as Insp. R. Kulkarni</span>
+            <small>Investigating officer</small>
+          </button>
+        </form>
+        <form method="post" action="/auth/prototype">
+          <input type="hidden" name="role" value="supervisor">
+          <button class="login-button login-button-prototype" type="submit">
+            <span>Sign in as ACP S. Deshmukh</span>
+            <small>Countersignature officer</small>
+          </button>
+        </form>
+      </div>
+      <span class="login-demo-label">PROTOTYPE BASED LOGIN · Demonstration account selection · each action is recorded under the selected officer identity</span>
     </div>
 
     <p class="login-help">Access is provisioned by your departmental nodal officer.</p>
     <p class="login-help">Contact your cyber cell administrator to request access.</p>
   </main>
-  <footer class="login-warning">This is a restricted Government of India system. Access is monitored. All queries are logged against your officer identity and the case they are attached to. Unauthorised access is an offence under the Information Technology Act, 2000.</footer>
+  <footer class="login-warning">This demonstration prototype is not an official Government of India website. Access is monitored. Queries are logged against the selected demonstration officer identity and attached case.</footer>
 </section>
 {% endblock %}

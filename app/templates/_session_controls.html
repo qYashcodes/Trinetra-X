@@ -1,0 +1,49 @@
+{% set idle = session_idle | default({'obscure_seconds': 120, 'warning_seconds': 780, 'timeout_seconds': 900}, true) %}
+{% set switch_next_url = (request.url.path ~ ('?' ~ request.url.query if request.url.query else '')) if request is defined else '/docket' %}
+<header
+  class="session-controls"
+  data-session-controls
+  data-idle-obscure-seconds="{{ idle.obscure_seconds }}"
+  data-idle-warning-seconds="{{ idle.warning_seconds }}"
+  data-idle-timeout-seconds="{{ idle.timeout_seconds }}"
+  data-csrf-token="{{ csrf_token | default('', true) }}"
+>
+  <div class="session-posture">
+    <strong>Demonstration session</strong>
+    <span>Prototype authentication</span>
+  </div>
+  <div class="officer-badge" aria-label="Signed-in officer">
+    <span class="officer-badge-mark" aria-hidden="true">ID</span>
+    <span>
+      <strong>{{ user.name }}</strong>
+      <small>{{ (user.role if user.role is defined else 'Officer') | replace('_', ' ') | title }} · {{ user.desk }}</small>
+    </span>
+  </div>
+  <a class="session-link" href="/sessions">Sessions</a>
+  <form method="post" action="/auth/prototype" class="session-switch-form">
+    {% if user.role == 'supervisor' %}
+    <input type="hidden" name="role" value="io">
+    <input type="hidden" name="next_url" value="{{ switch_next_url }}">
+    <button class="session-link session-switch" type="submit">Switch to IO</button>
+    {% else %}
+    <input type="hidden" name="role" value="supervisor">
+    <input type="hidden" name="next_url" value="{{ switch_next_url }}">
+    <button class="session-link session-switch" type="submit">Switch to ACP</button>
+    {% endif %}
+  </form>
+  <form method="post" action="/auth/logout">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token | default('', true) }}">
+    <button class="session-signout" type="submit">Sign out</button>
+  </form>
+</header>
+
+<section class="session-shield" data-session-shield hidden aria-live="assertive">
+  <div class="session-shield-panel">
+    <span class="session-shield-mark" aria-hidden="true">त्रि</span>
+    <p class="session-shield-kicker">Workspace obscured</p>
+    <h2>{{ user.name }}</h2>
+    <p data-session-shield-message>Re-enter your active session to reveal case information.</p>
+    <p class="session-countdown" data-session-countdown hidden></p>
+    <button type="button" data-session-resume>Re-enter workspace</button>
+  </div>
+</section>

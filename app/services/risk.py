@@ -1,9 +1,19 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from pathlib import Path
+from typing import Any
 
-from app.engine_bridge import ChainRef, resolve_vasp
+from app.engine_bridge import ChainRef, detect_chain, resolve_vasp
+from app.services.behavior import (
+    assign_evidence_band,
+    band_methodology,
+    extract_behavioral_features,
+)
 from app.services.demo import demo_case
+from app.services.evidence_store import provider_evidence_scope
+from app.services.hash import canonical_json_bytes, sha256_bytes, sha256_json
+from app.services.time import now_ms
 
 
 _DEMO = demo_case()
@@ -11,6 +21,12 @@ ALERT_ADDRESS = _DEMO["terminal"]["deposit_address"]
 MEDIUM_ADDRESS = _DEMO["dominant_path"][2]["address"]
 RECENT_PATH_ADDRESS = _DEMO["dominant_path"][3]["address"]
 LOW_ADDRESS = "TZr8kM3vXp6nQe1WdB9cLf4YtJ7sHu2Ga15"
+_BAND_VALUES = {
+    "alert": "High",
+    "medium": "Medium",
+    "low": "Low",
+    "unknown": "Inconclusive",
+}
 
 
 def _compact_address(address: str) -> str:
@@ -19,9 +35,8 @@ def _compact_address(address: str) -> str:
 
 _RESULTS = {
     ALERT_ADDRESS: {
-        "score": 91,
         "band": "alert",
-        "band_label": "High risk",
+        "band_label": "High evidence",
         "verdict_badge": "Named in an open case",
         "verdict_line": "This address appears in a complaint-linked custody finding",
         "verdict_note": (
@@ -58,7 +73,7 @@ _RESULTS = {
         "signals": [
             "Address appears in a custody finding.",
             "Notice, dispatch and restraint status must be verified in the case workflow.",
-            "Classifier band is high.",
+            "Fixture evidence band is high.",
         ],
         "linked": [
             {"reference": "NCRP/2026/MH/0084213", "amount": "21,940.00 USDT", "stage": "Finding review", "tone": "medium", "href": "/notices"},
@@ -68,9 +83,8 @@ _RESULTS = {
         ],
     },
     MEDIUM_ADDRESS: {
-        "score": 58,
         "band": "medium",
-        "band_label": "Medium risk",
+        "band_label": "Medium evidence",
         "verdict_badge": "Behavioural match only",
         "verdict_line": "The pattern resembles a peel chain, ownership unknown",
         "verdict_note": (
@@ -86,34 +100,32 @@ _RESULTS = {
         "signal_details": [
             {"label": "Peel-chain behaviour", "detail": "Eleven transfers forward 84 to 92 per cent of each deposit within minutes of receipt.", "meta": "11 events, 3 days", "tone": "medium"},
             {"label": "Short lifetime", "detail": "The address was created four days ago and has no counterparty older than that.", "meta": "age 4 d", "tone": "medium"},
-            {"label": "No advisory listing", "detail": "The address does not appear on any sanctions or advisory list held by this desk.", "meta": "checked 09:41 IST", "tone": "success"},
+            {"label": "Fixture advisory coverage", "detail": "No adverse findings in available sources at the stated fixture revision.", "meta": "checked 09:41 IST", "tone": "success"},
         ],
-        "signals": ["Classifier band is medium for an intermediate hop.", "Address is on a traced path in this docket."],
+        "signals": ["Fixture evidence band is medium for an intermediate hop.", "Address is on a traced path in this docket."],
         "linked": [
             {"reference": "NCRP/2026/MH/0084213", "amount": "21,940.00 USDT", "stage": "Linked docket", "tone": "medium", "href": "/notices"}
         ],
     },
     LOW_ADDRESS: {
-        "score": 12,
         "band": "low",
-        "band_label": "Low risk",
-        "verdict_badge": "Nothing on record",
-        "verdict_line": "No adverse signal against this address",
+        "band_label": "Available-source result",
+        "verdict_badge": "Evidence remains limited",
+        "verdict_line": "No adverse findings in available sources",
         "verdict_note": (
-            "The address appears in no docket at this desk, carries no advisory listing, and its "
-            "transfer pattern is unremarkable. Absence of a record is not clearance; it means only "
-            "that nothing is held."
+            "No current fixture docket or fixture advisory source names this address. Absence of "
+            "a record is not clearance and does not establish identity, intent or conduct."
         ),
         "facts": [
             {"label": "First seen", "value": "2025-02-04", "tone": "default"},
             {"label": "Inbound total", "value": "9,140 USDT", "tone": "default"},
-            {"label": "Attribution", "value": "Retail wallet", "tone": "default"},
+            {"label": "Attribution", "value": "Unattributed", "tone": "medium"},
             {"label": "Dockets", "value": "0", "tone": "success"},
         ],
         "signal_details": [
             {"label": "No docket match", "detail": "Checked against 37 open and closed dockets held by this desk.", "meta": "0 hits", "tone": "success"},
-            {"label": "No advisory listing", "detail": "Not present on sanctions or advisory lists as at the current revision.", "meta": "rev. 2026-08-24", "tone": "success"},
-            {"label": "Steady low-value pattern", "detail": "Small regular transfers to two long-lived counterparties over nineteen months.", "meta": "19 months", "tone": "success"},
+            {"label": "No adverse findings in available sources", "detail": "No fixture advisory record matched at the stated fixture revision.", "meta": "rev. 2026-08-24", "tone": "success"},
+            {"label": "Observed fixture activity", "detail": "The fixture contains small transfers to two counterparties over nineteen months.", "meta": "19 months", "tone": "default"},
         ],
         "signals": ["Absence of a record is not clearance."],
         "linked": [],
@@ -121,19 +133,14 @@ _RESULTS = {
 }
 
 
-def risk_page_data() -> dict:
+def risk_page_data(risk_recent: list[dict] | None = None) -> dict:
     return {
         "risk_samples": [
             {"address": ALERT_ADDRESS, "label": _compact_address(ALERT_ADDRESS), "tone": "alert"},
             {"address": MEDIUM_ADDRESS, "label": _compact_address(MEDIUM_ADDRESS), "tone": "medium"},
             {"address": LOW_ADDRESS, "label": "TZr8kM…Ga15", "tone": "success"},
         ],
-        "risk_recent": [
-            {"address": ALERT_ADDRESS, "label": _compact_address(ALERT_ADDRESS), "time": "09:38", "tone": "alert"},
-            {"address": MEDIUM_ADDRESS, "label": _compact_address(MEDIUM_ADDRESS), "time": "09:12", "tone": "medium"},
-            {"address": LOW_ADDRESS, "label": "TZr8kM…Ga15", "time": "08:55", "tone": "success"},
-            {"address": RECENT_PATH_ADDRESS, "label": _compact_address(RECENT_PATH_ADDRESS), "time": "08:31", "tone": "medium"},
-        ],
+        "risk_recent": list(risk_recent or []),
     }
 
 
@@ -236,14 +243,13 @@ def risk_check(address: str, *, notice_state: dict | None = None) -> dict:
 
     if result is None:
         result = {
-            "score": 34,
             "band": "unknown",
             "band_label": "Inconclusive",
             "verdict_badge": "Not held at this desk",
             "verdict_line": "The address is unknown to the records checked",
             "verdict_note": (
-                "No docket, attribution entry or advisory listing matches this address. A score in "
-                "this range reflects the absence of information, not a finding of safety."
+                "No adverse findings in available sources. Available information is insufficient "
+                "for a behavioural or attribution outcome, and absence is not clearance."
             ),
             "facts": [
                 {"label": "First seen", "value": "unknown", "tone": "muted"},
@@ -268,7 +274,7 @@ def risk_check(address: str, *, notice_state: dict | None = None) -> dict:
             "headline": (
                 "Investigative signals found for this address."
                 if result["band"] in {"alert", "medium"}
-                else "No local record matched this address."
+                else "No adverse findings in available sources."
             ),
             "dockets": [item["reference"] for item in result["linked"]],
             "attribution": (
@@ -278,6 +284,351 @@ def risk_check(address: str, *, notice_state: dict | None = None) -> dict:
             ),
             "record_based": True,
             "live_enrichment": "disabled in fixture mode",
+            "score": None,
+            "posterior": None,
+            "probability_enabled": False,
+            "score_kind": "fixture_evidence_band",
+            "calibration_status": "disabled_pending_independent_labelled_data",
+            "evidence_band_value": _BAND_VALUES.get(result["band"], "Inconclusive"),
+            "evidence_band_caption": "fixture evidence band",
+            "mode": "fixture",
+            "features": [],
+            "feature_set": None,
+            "methodology": band_methodology(),
+            "attribution_evidence": [
+                {
+                    "source": "TRINETRA fixture case records",
+                    "status": "matched" if result["linked"] else "no_match_in_fixture",
+                    "retrieval_ts_ms": None,
+                    "provenance": "docs/demo_case.json and local fixture docket records",
+                },
+                {
+                    "source": "reviewed fixture VASP registry",
+                    "status": "matched" if result_key == ALERT_ADDRESS else "no_match_in_fixture",
+                    "retrieval_ts_ms": None,
+                    "provenance": "Controlled fixture attribution revision 2026-08-24",
+                },
+                {
+                    "source": "fixture sanctions sources",
+                    "status": "no_adverse_findings_in_available_sources",
+                    "retrieval_ts_ms": None,
+                    "provenance": "Controlled fixture advisory revision 2026-08-24",
+                },
+                {
+                    "source": "fixture reported-abuse sources",
+                    "status": "no_adverse_findings_in_available_sources",
+                    "retrieval_ts_ms": None,
+                    "provenance": "Controlled fixture reported-abuse revision 2026-08-24",
+                },
+            ],
         }
     )
     return result
+
+
+def live_risk_check(
+    address: str,
+    *,
+    evidence_root: Path,
+    local_records: list[dict[str, Any]] | None = None,
+    reported_addresses: set[str] | None = None,
+    lookback_days: int = 30,
+) -> dict:
+    normalized = address.strip()
+    lookup_started = now_ms()
+    lookup_ref = sha256_json(
+        {"address": normalized, "mode": "live", "started_ts_ms": lookup_started}
+    )
+    records = list(local_records or [])
+    if detect_chain(normalized) != "TRON":
+        result = _live_result(
+            normalized,
+            transfers=[],
+            provider_records=[],
+            local_records=records,
+            reported_addresses=reported_addresses or set(),
+            lookup_ref=lookup_ref,
+            provider_status="unsupported_chain",
+            provider_error_kind="unsupported_chain",
+            lookback_days=lookback_days,
+        )
+        return _persist_live_result(result, evidence_root)
+
+    from engine.adapters import tron
+
+    window_end = lookup_started
+    window_start = max(0, window_end - max(1, lookback_days) * 24 * 60 * 60 * 1000)
+    capture_root = evidence_root / "risk-lookups" / lookup_ref[:20]
+    with provider_evidence_scope(root=capture_root, lookup_ref=lookup_ref) as capture:
+        try:
+            raw = tron.fetch_trc20_transfers(
+                normalized,
+                min_timestamp=window_start,
+                max_timestamp=window_end,
+                contract_address=tron.TRON_MAINNET_USDT,
+            )
+            transfers = [tron.normalise(row) for row in raw]
+            provider_status = "confirmed_history_fetched"
+            provider_error_kind = None
+        except (tron.ProviderConfigurationError, tron.ProviderResponseError) as exc:
+            transfers = []
+            provider_status = "provider_unavailable"
+            provider_error_kind = getattr(exc, "error_kind", "provider_configuration")
+    result = _live_result(
+        normalized,
+        transfers=transfers,
+        provider_records=list(capture.records),
+        local_records=records,
+        reported_addresses=reported_addresses or set(),
+        lookup_ref=lookup_ref,
+        provider_status=provider_status,
+        provider_error_kind=provider_error_kind,
+        lookback_days=lookback_days,
+    )
+    return _persist_live_result(result, evidence_root)
+
+
+def _persist_live_result(result: dict[str, Any], evidence_root: Path) -> dict[str, Any]:
+    result_bytes = canonical_json_bytes(result)
+    result_sha256 = sha256_bytes(result_bytes)
+    lookup_ref = str(result["lookup_ref"])
+    directory = evidence_root / "risk-lookups" / lookup_ref[:20]
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"result-{result_sha256[:16]}.json"
+    if not path.exists():
+        path.write_bytes(result_bytes)
+    result["result_record"] = {
+        "schema": "trinetra.risk_lookup_record/1",
+        "sha256": result_sha256,
+        "path": str(path),
+    }
+    return result
+
+
+def _live_result(
+    address: str,
+    *,
+    transfers: list[dict[str, Any]],
+    provider_records: list[dict[str, Any]],
+    local_records: list[dict[str, Any]],
+    reported_addresses: set[str],
+    lookup_ref: str,
+    provider_status: str,
+    provider_error_kind: str | None,
+    lookback_days: int,
+) -> dict:
+    feature_set = extract_behavioral_features(
+        address,
+        transfers,
+        reported_addresses=reported_addresses,
+        registry_addresses=set(),
+    )
+    band_result = assign_evidence_band(
+        feature_set,
+        local_case_match_count=len(local_records),
+    )
+    if provider_status != "confirmed_history_fetched" and not local_records:
+        band_result = {
+            "schema": band_result["schema"],
+            "band": "unknown",
+            "matched_rules": [],
+            "observed_classes": [],
+            "reason": "Confirmed provider history was unavailable for this lookup.",
+            "insufficiency_reasons": [
+                "Behavioural features cannot be banded without confirmed transfer history."
+            ],
+        }
+    band = band_result["band"]
+    labels = {
+        "alert": ("Case-linked evidence", "Named by available local records"),
+        "medium": ("Observed pattern", "Documented behavioural rule matched"),
+        "low": ("Available-source result", "Evidence remains limited"),
+        "unknown": ("Unknown", "Insufficient evidence"),
+    }
+    verdicts = {
+        "alert": "Available local case records name this address",
+        "medium": "Observed activity matches a documented behavioural pattern",
+        "low": "No adverse findings in available sources",
+        "unknown": "Available evidence is insufficient for a behavioural outcome",
+    }
+    notes = {
+        "alert": (
+            "The address is linked to available local case evidence. That link does not establish "
+            "identity, intent, participation or current custody."
+        ),
+        "medium": (
+            "The band follows fixed, reviewable rules over confirmed transfer history. Behavioural "
+            "similarity is not custody attribution, identity, intent or participation."
+        ),
+        "low": (
+            "No adverse findings in available sources. Absence does not establish ownership, "
+            "identity, intent or participation."
+        ),
+        "unknown": (
+            "No adverse findings in available sources. The observed history is insufficient, so "
+            "the system leaves the outcome unknown."
+        ),
+    }
+    band_label, verdict_badge = labels[band]
+    signal_details = _live_signal_details(band_result, feature_set)
+    linked = [
+        {
+            "reference": record["reference"],
+            "amount": record.get("amount", "Amount held in case record"),
+            "stage": record.get("stage", "Local case evidence"),
+            "tone": "medium",
+            "href": record.get("href", "/docket"),
+        }
+        for record in local_records
+    ]
+    provider_retrievals = [
+        int(record["retrieval_ts_ms"])
+        for record in provider_records
+        if record.get("retrieval_ts_ms") is not None
+    ]
+    local_case_source = {
+        "source": "TRINETRA local case records",
+        "status": "matched" if local_records else "no_match_in_available_records",
+        "retrieval_ts_ms": max(
+            [int(record["retrieval_ts_ms"]) for record in local_records if record.get("retrieval_ts_ms") is not None],
+            default=None,
+        ),
+        "provenance": "Local case and canonical evidence index",
+        "references": [record.get("reference") for record in local_records],
+        "evidence_refs": [
+            evidence_ref
+            for record in local_records
+            for evidence_ref in list(record.get("evidence_refs") or [])
+        ],
+    }
+    attribution_evidence = [
+        {
+            "source": "TronGrid confirmed TRC-20 history",
+            "status": provider_status,
+            "retrieval_ts_ms": max(provider_retrievals) if provider_retrievals else None,
+            "provenance": f"{len(provider_records)} retained provider request receipt(s)",
+            "error_kind": provider_error_kind,
+        },
+        local_case_source,
+        {
+            "source": "reviewed VASP registry",
+            "status": "unavailable",
+            "retrieval_ts_ms": None,
+            "provenance": "No reviewed live registry is configured; fixture registry data is excluded.",
+        },
+        {
+            "source": "sanctions sources",
+            "status": "unavailable",
+            "retrieval_ts_ms": None,
+            "provenance": "No approved live sanctions connector is configured.",
+        },
+        {
+            "source": "reported-abuse sources",
+            "status": "unavailable",
+            "retrieval_ts_ms": None,
+            "provenance": "No approved live reported-abuse connector is configured.",
+        },
+    ]
+    safe_provider_records = [
+        {
+            "request_ref": record.get("request_ref"),
+            "provider": record.get("provider"),
+            "endpoint": record.get("endpoint"),
+            "retrieval_ts_ms": record.get("retrieval_ts_ms"),
+            "raw_sha256": record.get("raw_sha256"),
+            "schema_status": record.get("schema_status"),
+        }
+        for record in provider_records
+    ]
+    return {
+        "schema": "trinetra.risk_check/2",
+        "lookup_ref": lookup_ref,
+        "mode": "live",
+        "address": address,
+        "band": band,
+        "band_label": band_label,
+        "verdict_badge": verdict_badge,
+        "verdict_line": verdicts[band],
+        "verdict_note": notes[band],
+        "headline": verdicts[band],
+        "facts": [
+            {
+                "label": "Transfers observed",
+                "value": str(feature_set["observed_event_count"]),
+                "tone": "default",
+            },
+            {
+                "label": "Inbound events",
+                "value": str(feature_set["inbound_event_count"]),
+                "tone": "default",
+            },
+            {
+                "label": "Outbound events",
+                "value": str(feature_set["outbound_event_count"]),
+                "tone": "default",
+            },
+            {
+                "label": "History window",
+                "value": f"{lookback_days} days",
+                "tone": "default",
+            },
+        ],
+        "signal_details": signal_details,
+        "signals": [item["detail"] for item in signal_details],
+        "linked": linked,
+        "dockets": [item["reference"] for item in linked],
+        "attribution": None,
+        "record_based": True,
+        "live_enrichment": provider_status,
+        "score": None,
+        "posterior": None,
+        "probability_enabled": False,
+        "score_kind": "not_scored",
+        "calibration_status": "disabled_pending_independent_labelled_data",
+        "evidence_band_value": _BAND_VALUES.get(band, "Inconclusive"),
+        "evidence_band_caption": "documented evidence band",
+        "feature_set": feature_set,
+        "features": feature_set["items"],
+        "band_basis": band_result,
+        "methodology": band_methodology(),
+        "attribution_evidence": attribution_evidence,
+        "provider_evidence": safe_provider_records,
+    }
+
+
+def _live_signal_details(
+    band_result: dict[str, Any],
+    feature_set: dict[str, Any],
+) -> list[dict[str, str]]:
+    details: list[dict[str, str]] = []
+    for rule in band_result.get("matched_rules") or []:
+        details.append(
+            {
+                "label": rule.replace("_", " ").title(),
+                "detail": "A versioned evidence-band rule matched the raw features shown below.",
+                "meta": band_result["schema"],
+                "tone": "alert" if band_result["band"] == "alert" else "medium",
+            }
+        )
+    for reason in band_result.get("insufficiency_reasons") or []:
+        details.append(
+            {
+                "label": "Evidence insufficient",
+                "detail": reason,
+                "meta": feature_set["schema"],
+                "tone": "medium",
+            }
+        )
+    if not details:
+        details.append(
+            {
+                "label": "No adverse findings in available sources",
+                "detail": (
+                    "No local case match or documented behavioural rule was found in the fetched "
+                    "history. Absence is not clearance."
+                ),
+                "meta": band_result["schema"],
+                "tone": "default",
+            }
+        )
+    return details

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from pathlib import Path
 import re
 
 import pytest
@@ -67,3 +68,48 @@ def test_main_screens_use_local_resolvable_assets(client: TestClient) -> None:
         asset = client.get(path)
         assert asset.status_code == 200, path
         assert asset.content, path
+
+
+def test_dispatch_visual_state_is_pending_not_success() -> None:
+    app_css = Path("app/static/app.css").read_text()
+    notice_css = Path("app/static/notice.css").read_text()
+
+    green_chip_rule = next(
+        rule for rule in app_css.splitlines() if ".chip.high" in rule and "green" in rule
+    )
+    amber_chip_rule = next(
+        rule for rule in app_css.splitlines() if ".chip.medium" in rule and "amber" in rule
+    )
+
+    assert ".chip.dispatched" not in green_chip_rule
+    assert ".chip.dispatched" in amber_chip_rule
+    assert ".notice-state.sent i { background:#16a34a" not in notice_css
+    assert ".notice-sendbar.sent { border-left-color:#16a34a" not in notice_css
+    assert ".notice-state.sent i { background:#c98a12" in notice_css
+    assert ".notice-sendbar.sent { border-left-color:#c98a12" in notice_css
+
+
+def test_risk_screen_presents_record_band_not_calibrated_score(client: TestClient) -> None:
+    response = client.post(
+        "/risk-check",
+        data={"address": "TGh3c9PkL8Qn7MuYbxV1aZP2R6EeSsQ7hC"},
+    )
+    assert response.status_code == 200
+    body = response.text
+
+    assert "High evidence" in body
+    assert "fixture evidence band" in body
+    assert "risk score of 100" not in body.lower()
+    assert "Classifier band" not in body
+    assert "calibrated probability" in body
+
+    api_response = client.post(
+        "/api/risk-check",
+        json={"address": "TGh3c9PkL8Qn7MuYbxV1aZP2R6EeSsQ7hC"},
+    )
+    assert api_response.status_code == 200
+    payload = api_response.json()
+    assert payload["score"] is None
+    assert payload["posterior"] is None
+    assert payload["probability_enabled"] is False
+    assert payload["score_kind"] == "fixture_evidence_band"

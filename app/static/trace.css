@@ -10,7 +10,7 @@ body.trace-page {
   width: 100vw;
   height: 100vh;
   display: grid;
-  grid-template-rows: 62px minmax(0, 1fr) 69px;
+  grid-template-rows: 62px 38px minmax(0, 1fr) 69px;
   overflow: hidden;
   background: #f5f7fa;
   font-family: "Noto Sans", Arial, sans-serif;
@@ -318,7 +318,15 @@ body.trace-page {
   white-space: nowrap;
 }
 
-.trace-progress-copy b { color: #12325e; font-size: 27px; line-height: 1; font-weight: 400; }
+.trace-progress-copy b {
+  min-width: 142px;
+  color: #12325e;
+  font-size: 18px;
+  line-height: 1.15;
+  font-weight: 600;
+  text-align: right;
+  white-space: nowrap;
+}
 .trace-progress-copy span { color: #5c6880; font-size: 13px; }
 .trace-progress-copy em { font-style: normal; }
 .trace-app[data-state="complete"] .trace-progress-copy b { color: #16a34a; }

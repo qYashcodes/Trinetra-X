@@ -10,8 +10,8 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 import app.main as main_module
 from app.main import app
-from app.models import Case, CaseStage, Dispatch, Finding, Notice
-from app.repository import finding_review_specs, initial_finding_review_checks
+from app.models import Case, CaseStage, Dispatch, Finding, Notice, NoticeTrackerEvent, TraceSnapshot
+from app.repository import finding_review_specs, initial_finding_review_checks, prepare_notice
 
 
 def csrf_from(html: str) -> str:
@@ -191,6 +191,74 @@ def test_workflow_forms_reject_missing_csrf_token(isolated_engine) -> None:
         assert "Invalid or missing workflow token" in denied.text
 
 
+def test_prepare_notice_uses_unique_notice_number_for_separate_findings(
+    isolated_engine,
+) -> None:
+    ts = 1_788_000_000_000
+    with Session(isolated_engine) as session:
+        findings: list[Finding] = []
+        for index in range(2):
+            case = Case(
+                ack_no=f"NCRP/2026/MH/DUP-{index}",
+                category="investment_fraud",
+                jurisdiction="MH",
+                filed_ts_ms=ts,
+                amount_reported_base=1_000_000,
+                asset_symbol="USDT",
+                asset_decimals=6,
+                chain_family="TRON",
+                chain_network="mainnet",
+                reported_address=f"TDuplicateNotice{index}111111111111111111",
+                payment_txid=f"duplicate-notice-{index}",
+                payment_ts_ms=ts,
+                created_ts_ms=ts,
+                updated_ts_ms=ts,
+            )
+            session.add(case)
+            session.commit()
+            session.refresh(case)
+            snapshot = TraceSnapshot(
+                case_id=int(case.id),
+                status="closed",
+                cache_identity=f"duplicate-notice-{index}",
+                result_json={"engine": {"mode": "fixture"}, "terminal": {"kind": "vasp_deposit"}},
+                sha256=f"{index + 1}" * 64,
+                chain_family="TRON",
+                chain_network="mainnet",
+                asset_symbol="USDT",
+                asset_decimals=6,
+                started_ts_ms=ts,
+                closed_ts_ms=ts,
+            )
+            session.add(snapshot)
+            session.commit()
+            session.refresh(snapshot)
+            finding = Finding(
+                case_id=int(case.id),
+                snapshot_id=int(snapshot.id),
+                terminal_kind="vasp_deposit",
+                custodian_key="coinsphere",
+                deposit_address=f"TDuplicateDeposit{index}1111111111111111",
+                amount_credited_base=1_000_000,
+                review_checks={key: True for key in initial_finding_review_checks()},
+                created_ts_ms=ts,
+            )
+            session.add(finding)
+            session.commit()
+            session.refresh(finding)
+            findings.append(finding)
+
+        first = prepare_notice(session, findings[0], "74821")
+        second = prepare_notice(session, findings[1], "74821")
+        again = prepare_notice(session, findings[1], "74821")
+
+        assert first.notice_no == "CCC/PUN/FN/2026/0311"
+        assert second.notice_no.startswith("CCC/PUN/FN/2026/0311-F")
+        assert second.notice_no != first.notice_no
+        assert again.id == second.id
+        assert len(session.exec(select(Notice)).all()) == 2
+
+
 def test_notice_requires_distinct_persisted_countersignature_before_dispatch(
     isolated_engine,
 ) -> None:
@@ -219,6 +287,21 @@ def test_notice_requires_distinct_persisted_countersignature_before_dispatch(
         assert "Template BNSS-106 v3.2 · specimen · legal review pending" in draft.text
         assert "SPECIMEN · NOT FOR LIVE DISPATCH" in draft.text
         assert "approved 2026-07-01" not in draft.text
+
+        sahyog = investigator.get(f"/api/notices/{notice_id}/sahyog-export")
+        assert sahyog.status_code == 200
+        sahyog_data = sahyog.json()
+        assert sahyog_data["submission"] == "integration_pending"
+        assert sahyog_data["submission_status"] == "integration_pending"
+        assert sahyog_data["specimen_only"] is True
+        assert sahyog_data["external_submission_performed"] is False
+        assert sahyog_data["integration_boundary"] == {
+            "provider": "SAHYOG",
+            "approved_schema_configured": False,
+            "credentials_configured": False,
+            "live_dispatch_enabled": False,
+            "reason": "Government portal submission requires approved schemas, provider metadata and credentials.",
+        }
 
         premature = investigator.post(
             f"/notices/{notice_id}/dispatch",
@@ -249,12 +332,30 @@ def test_notice_requires_distinct_persisted_countersignature_before_dispatch(
         assert "Awaiting ACP S. Deshmukh" in awaiting.text
         assert 'data-countersigned="false"' in awaiting.text
         assert "data-request-sign" not in awaiting.text
+        assert "Switch to ACP Deshmukh view" in awaiting.text
 
         self_sign = investigator.post(
             f"/notices/{notice_id}/countersign",
             data={"csrf_token": csrf_from(awaiting.text)},
         )
         assert self_sign.status_code == 403
+
+        with TestClient(app) as switcher:
+            io_login = switcher.post("/auth/prototype", data={"role": "io"}, follow_redirects=False)
+            assert io_login.status_code == 303
+            io_notice = switcher.get(f"/notices/{notice_id}")
+            assert "Switch to ACP Deshmukh view" in io_notice.text
+            switched = switcher.post(
+                "/auth/prototype",
+                data={"role": "supervisor", "next_url": f"/notices/{notice_id}"},
+                follow_redirects=False,
+            )
+            assert switched.status_code == 303
+            assert switched.headers["location"] == f"/notices/{notice_id}"
+            switched_view = switcher.get(switched.headers["location"])
+            assert "ACP S. Deshmukh" in switched_view.text
+            assert "Switch to IO" in switched_view.text
+            assert "data-countersign" in switched_view.text
 
         login_and_seed(supervisor, "supervisor")
         supervisor_view = supervisor.get(f"/notices/{notice_id}")
@@ -309,7 +410,9 @@ def test_notice_requires_distinct_persisted_countersignature_before_dispatch(
             assert notice is not None
             assert case is not None
             assert notice.status == "dispatched"
-            assert notice.deadline_hours == 72
+            assert notice.deadline_hours == 24
+            assert notice.dispatched_ts_ms is not None
+            assert notice.tracker_status == "dispatched"
             assert notice.pdf_sha256
             original_hash = notice.pdf_sha256
             assert case.stage == CaseStage.notice_out
@@ -319,6 +422,8 @@ def test_notice_requires_distinct_persisted_countersignature_before_dispatch(
                 "state-nodal-copy",
             ]
             assert [row.status for row in rows] == ["sent", "sent", "failed"]
+            tracker_event = session.exec(select(NoticeTrackerEvent)).one()
+            assert tracker_event.to_status == "dispatched"
 
         repeated = investigator.post(
             f"/notices/{notice_id}/dispatch",
@@ -339,7 +444,9 @@ def test_notice_requires_distinct_persisted_countersignature_before_dispatch(
         persisted = investigator.get(f"/notices/{notice_id}")
         assert 'data-notice-status="dispatched"' in persisted.text
         assert "Dispatched, awaiting acknowledgement" in persisted.text
-        assert "seventy-two hours" in persisted.text
+        assert "Response required: ASAP, and in any case within 24 hours of receipt of this notice." in persisted.text
+        assert "seventy-two hours" not in persisted.text
+        assert "7 days" not in persisted.text
         assert "Failed — retry required" in persisted.text
 
         persisted_risk = investigator.post(
@@ -357,3 +464,150 @@ def test_notice_requires_distinct_persisted_countersignature_before_dispatch(
     assert "notice.countersign_request" in actions
     assert "notice.countersign" in actions
     assert "notice.dispatch" in actions
+
+
+def test_demo_notice_resets_to_draft_on_logout(isolated_engine) -> None:
+    keys = [str(spec["key"]) for spec in finding_review_specs()]
+
+    with TestClient(app) as client:
+        finding_id = login_and_seed(client)
+        finding_page = client.get(f"/findings/{finding_id}")
+        prepared = client.post(
+            f"/findings/{finding_id}/checks",
+            data={
+                "review_check": keys,
+                "action": "prepare",
+                "csrf_token": csrf_from(finding_page.text),
+            },
+            follow_redirects=False,
+        )
+        assert prepared.status_code == 303
+        notice_id = 1
+
+        draft = client.get(f"/notices/{notice_id}")
+        requested = client.post(
+            f"/notices/{notice_id}/countersign-request",
+            data={"csrf_token": csrf_from(draft.text)},
+            follow_redirects=False,
+        )
+        assert requested.status_code == 303
+        client.post(
+            "/auth/prototype",
+            data={"role": "supervisor", "next_url": f"/notices/{notice_id}"},
+            follow_redirects=False,
+        )
+        supervisor_view = client.get(f"/notices/{notice_id}")
+        signed = client.post(
+            f"/notices/{notice_id}/countersign",
+            data={"csrf_token": csrf_from(supervisor_view.text)},
+            follow_redirects=False,
+        )
+        assert signed.status_code == 303
+        client.post(
+            "/auth/prototype",
+            data={"role": "io", "next_url": f"/notices/{notice_id}"},
+            follow_redirects=False,
+        )
+        signed_view = client.get(f"/notices/{notice_id}")
+        dispatched = client.post(
+            f"/notices/{notice_id}/dispatch",
+            data={
+                "channel": ["portal", "email"],
+                "csrf_token": csrf_from(signed_view.text),
+            },
+            follow_redirects=False,
+        )
+        assert dispatched.status_code == 303
+        dispatched_view = client.get(f"/notices/{notice_id}")
+        assert 'data-notice-status="dispatched"' in dispatched_view.text
+        assert "Countersigned by ACP S. Deshmukh" in dispatched_view.text
+
+        signed_out = client.post(
+            "/auth/logout",
+            data={"csrf_token": csrf_from(dispatched_view.text)},
+            follow_redirects=False,
+        )
+        assert signed_out.status_code == 303
+        assert signed_out.headers["location"] == "/login"
+
+        with Session(isolated_engine) as session:
+            notice = session.get(Notice, notice_id)
+            case = session.get(Case, 1)
+            assert notice is not None
+            assert case is not None
+            assert notice.status == "draft"
+            assert notice.countersigned_by_pis is None
+            assert notice.countersigned_ts_ms is None
+            assert notice.dispatched_ts_ms is None
+            assert notice.pdf_sha256 is None
+            assert notice.tracker_status == "drafted"
+            assert case.stage == CaseStage.notice_draft
+            assert session.exec(select(Dispatch)).all() == []
+            assert session.exec(select(NoticeTrackerEvent)).all() == []
+
+        client.post("/auth/prototype", data={"role": "io"}, follow_redirects=False)
+        reset_view = client.get(f"/notices/{notice_id}")
+        assert reset_view.status_code == 200
+        assert 'data-notice-status="draft"' in reset_view.text
+        assert 'data-countersigned="false"' in reset_view.text
+        assert "Request countersignature" in reset_view.text
+        assert "Dispatched, awaiting acknowledgement" not in reset_view.text
+        assert "Countersigned by ACP S. Deshmukh" not in reset_view.text
+
+        requested_again = client.post(
+            f"/notices/{notice_id}/countersign-request",
+            data={"csrf_token": csrf_from(reset_view.text)},
+            follow_redirects=False,
+        )
+        assert requested_again.status_code == 303
+        client.post(
+            "/auth/prototype",
+            data={"role": "supervisor", "next_url": f"/notices/{notice_id}"},
+            follow_redirects=False,
+        )
+        acp_view = client.get(f"/notices/{notice_id}")
+        assert "data-countersign" in acp_view.text
+        assert "Awaiting ACP S. Deshmukh" in acp_view.text
+
+
+def test_sahyog_export_rejects_notice_without_finding(isolated_engine) -> None:
+    ts = 1_788_000_000_000
+    with Session(isolated_engine) as session:
+        session.add(
+            Case(
+                ack_no="NCRP/2026/MH/ORPHAN",
+                category="investment_fraud",
+                jurisdiction="MH",
+                filed_ts_ms=ts,
+                amount_reported_base=1,
+                asset_symbol="USDT",
+                chain_family="TRON",
+                chain_network="mainnet",
+                reported_address="TXorphanNotice111111111111111111111111",
+                payment_txid="orphan-notice",
+                payment_ts_ms=ts,
+                stage=CaseStage.notice_draft,
+                created_ts_ms=ts,
+                updated_ts_ms=ts,
+            )
+        )
+        session.commit()
+        session.add(
+            Notice(
+                case_id=1,
+                finding_id=999,
+                notice_no="MH-CYBER/ORPHAN/1",
+                status="draft",
+                deadline_hours=24,
+                created_by_pis="48421",
+                created_ts_ms=ts,
+            )
+        )
+        session.commit()
+
+    with TestClient(app) as client:
+        login_and_seed(client)
+        response = client.get("/api/notices/1/sahyog-export")
+
+    assert response.status_code == 404
+    assert "Finding not found for notice." in response.text

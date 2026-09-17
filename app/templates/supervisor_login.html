@@ -1,12 +1,32 @@
 {% extends "base.html" %}
+{% block title %}Supervisor login · TRINETRA{% endblock %}
 {% block public %}
 <section class="login">
-  <div class="login-panel">
-    <h1>Supervisor prototype login</h1>
-    <form method="post" action="/auth/prototype">
-      <input type="hidden" name="role" value="supervisor">
-      <button>Sign in as ACP S. Deshmukh</button>
-    </form>
-  </div>
+  <main class="login-stack" aria-labelledby="supervisor-login-title">
+    <img src="/static/trinetra-login-mark.svg" class="login-mark" alt="">
+    <h1 id="supervisor-login-title">Supervisor view</h1>
+    <p class="login-product">Countersignature session for high-value freeze notices</p>
+    <p class="login-meta">Prototype account · ACP S. Deshmukh</p>
+
+    <div class="login-actions">
+      <form method="post" action="/auth/prototype">
+        <input type="hidden" name="role" value="supervisor">
+        <button class="login-button login-button-prototype" type="submit">
+          <span>Sign in as ACP S. Deshmukh</span>
+          <small>Countersign notice</small>
+        </button>
+      </form>
+      <form method="post" action="/auth/prototype">
+        <input type="hidden" name="role" value="io">
+        <button class="login-button login-button-prototype" type="submit">
+          <span>Return as Insp. R. Kulkarni</span>
+          <small>Investigator view</small>
+        </button>
+      </form>
+    </div>
+
+    <p class="login-help">Countersignature is recorded only in the supervising officer's own session.</p>
+  </main>
+  <footer class="login-warning">This demonstration prototype is not an official Government of India website. Access is monitored against the selected demonstration officer identity.</footer>
 </section>
 {% endblock %}

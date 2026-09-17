@@ -26,6 +26,7 @@
       <button class="finding-top-button lock{{ ' ready' if blocked_count == 0 else '' }}" type="button" data-review-jump>{% if blocked_count %}Locked: <span data-blocked-count>{{ blocked_count }}</span> {{ 'check' if blocked_count == 1 else 'checks' }} remaining{% else %}Prepare freeze notice{% endif %}</button>
     </div>
   </header>
+  {% include "_trace_mode_banner.html" %}
 
   <div class="finding-body">
     {% set active_page = 'finding' %}
