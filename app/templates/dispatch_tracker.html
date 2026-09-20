@@ -34,6 +34,12 @@
       </select></label>
       <label><span>VASP</span><input name="vasp" value="{{ filters.vasp }}" placeholder="Coinsphere"></label>
       <label><span>Case</span><input name="case" value="{{ filters.case }}" placeholder="NCRP reference"></label>
+      <label><span>Assigned IO</span><input name="io" value="{{ filters.io }}" placeholder="PIS or name"></label>
+      <label><span>Supervising ACP</span><input name="acp" value="{{ filters.acp }}" placeholder="PIS or name"></label>
+      <label><span>Notice type</span><select name="notice_type"><option value="">All types</option><option value="freeze"{{ ' selected' if filters.notice_type == 'freeze' else '' }}>Freeze</option></select></label>
+      <label><span>Channel</span><select name="channel"><option value="">All channels</option><option value="le-portal"{{ ' selected' if filters.channel == 'le-portal' else '' }}>Portal</option><option value="compliance-email"{{ ' selected' if filters.channel == 'compliance-email' else '' }}>Email</option><option value="state-nodal-copy"{{ ' selected' if filters.channel == 'state-nodal-copy' else '' }}>Nodal-copy</option><option value="sahyog-simulated"{{ ' selected' if filters.channel == 'sahyog-simulated' else '' }}>SAHYOG simulated</option></select></label>
+      <label class="tracker-check"><input type="checkbox" name="escalation" value="true"{{ ' checked' if filters.escalation else '' }}><span>Escalated only</span></label>
+      <label class="tracker-check"><input type="checkbox" name="sla_breach" value="true"{{ ' checked' if filters.sla_breach else '' }}><span>SLA breached</span></label>
       <button type="submit">Apply</button>
       <a href="/dispatch-tracker">Clear</a>
     </form>
@@ -53,30 +59,34 @@
         <tbody>
           {% for row in rows %}
           <tr class="tracker-row status-{{ row.effective_status }}">
-            <td>
+            <td data-label="Notice">
               <a href="/notices/{{ row.notice_id }}">{{ row.notice_no }}</a>
               <small class="mono">ID {{ row.notice_id }}</small>
             </td>
-            <td>
+            <td data-label="Case / VASP">
               <strong>{{ row.case_ref }}</strong>
               <span>{{ row.vasp_label }}</span>
               <small class="mono" title="{{ row.deposit_address }}">{{ row.deposit_address[:8] }}...{{ row.deposit_address[-6:] if row.deposit_address else '' }}</small>
             </td>
-            <td>
+            <td data-label="Dispatch">
               <span>{% if row.dispatch_ts_ms %}{{ row.dispatch_ts_ms | ist }}{% else %}Not dispatched{% endif %}</span>
               <small>{{ row.dispatches | length }} channel{{ '' if (row.dispatches | length) == 1 else 's' }}</small>
+              <small>{{ row.notice_type | labelize }} · version {{ row.notice_version_id or 'legacy' }}</small>
             </td>
-            <td>
+            <td data-label="SLA">
               <span>{% if row.deadline_ts_ms %}{{ row.deadline_ts_ms | ist }}{% else %}No active deadline{% endif %}</span>
-              <small>{{ row.time_label }}</small>
+              <small class="sla-{{ row.sla.tone }}">{{ row.time_label }}{% if row.sla.frozen %} · frozen{% endif %}</small>
             </td>
-            <td>
+            <td data-label="Status / owner">
               <b>{{ row.status_label }}</b>
+              <small>IO {{ row.assigned_io_pis }} · ACP {{ row.supervising_acp_pis or 'legacy' }}</small>
+              <small>Owner {{ row.current_owner_pis }} · escalation L{{ row.escalation_level }}</small>
+              <small>Acknowledgement: {{ row.acknowledgement_state | labelize }}</small>
               <small>{{ row.manual_notice }}</small>
               {% if row.sub_outcome_label %}<small>{{ row.sub_outcome_label }}</small>{% endif %}
               {% if row.last_note %}<em>{{ row.last_note }}</em>{% endif %}
             </td>
-            <td>
+            <td data-label="Manual update">
               <form class="tracker-update-form" method="post" action="/dispatch-tracker/{{ row.notice_id }}/status">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <select name="tracker_status" aria-label="New status for {{ row.notice_no }}">
@@ -95,7 +105,8 @@
               </form>
               <form class="tracker-escalate-form" method="post" action="/dispatch-tracker/{{ row.notice_id }}/escalate">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <input name="note" placeholder="Escalation note">
+                <input name="note" placeholder="Required escalation reason"{{ ' required' if row.dispatch_record else '' }}>
+                {% if row.dispatch_record %}<select name="next_owner_pis" aria-label="Next escalation owner" required><option value="">Select next officer</option>{% for officer in officers if officer.active %}<option value="{{ officer.pis }}">{{ officer.rank }} {{ officer.name }} · {{ officer.pis }}</option>{% endfor %}</select>{% endif %}
                 <button type="submit">Escalate</button>
               </form>
               <details>

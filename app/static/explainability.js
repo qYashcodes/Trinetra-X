@@ -58,6 +58,7 @@
     dialog.querySelectorAll("[data-explain-register]").forEach((button) => {
       button.setAttribute("aria-selected", String(button.dataset.explainRegister === register));
     });
+    content?.setAttribute("aria-labelledby", `trace-explain-tab-${register}`);
     const sections = item.registers?.[register] || [{
       title: "Not recorded",
       body: "This explanation register is not recorded for this item.",

@@ -79,6 +79,13 @@ def test_fixture_workflow_pages_render() -> None:
         assert "Supervisor view" in supervisor_login.text
         assert "Sign in as ACP S. Deshmukh" in supervisor_login.text
         assert "Return as Insp. R. Kulkarni" in supervisor_login.text
+        supervisor_session = client.post("/auth/prototype", data={"role": "supervisor"}, follow_redirects=False)
+        assert supervisor_session.status_code == 303
+        supervisor_docket = client.get("/docket")
+        assert supervisor_docket.status_code == 200
+        assert "Draft notice status" in supervisor_docket.text
+        assert "All IO cases" in supervisor_docket.text
+        assert "Escalated only" in supervisor_docket.text
 
         response = client.post("/auth/prototype", data={"role": "io"}, follow_redirects=False)
         assert response.status_code == 303
@@ -94,6 +101,8 @@ def test_fixture_workflow_pages_render() -> None:
         assert "A+" not in intake.text
         assert "NCRP/2026/MH/0091001" in intake.text
         assert "NCRP/2026/MH/0091002" in intake.text
+        assert "Complete</em>" in intake.text
+        assert "Incomplete</em>" in intake.text
         assert 'id="ack_no" name="ack_no" value=""' in intake.text
         assert intake.text.count('data-particular-state="pending"') == 8
         assert 'data-particular-state="missing"' not in intake.text
@@ -132,6 +141,14 @@ def test_fixture_workflow_pages_render() -> None:
         assert docket.status_code == 200
         assert "NCRP/2026/MH/0084213" in docket.text
         assert docket.text.count("data-docket-row") == 8
+        assert "Developer tools" in docket.text
+        assert "Integration status" in docket.text
+        assert "Audit log" in docket.text
+        assert "Active sessions" in docket.text
+        assert 'data-docket-filter="needs_attention"' in docket.text
+        assert 'id="docket-search"' in docket.text
+        assert "No cases match your filters." in docket.text
+        assert "docket-stage-badge" in docket.text
         assert "Value under trace" in docket.text
         assert "2.41" in docket.text
         assert "8 of 37 shown" in docket.text
@@ -163,6 +180,9 @@ def test_fixture_workflow_pages_render() -> None:
         assert "Trace graph exhibit" in canvas.text
         assert 'data-omega-graph' in canvas.text
         assert '/static/omega-graph.js' in canvas.text
+        assert 'data-bottom-tab="methodology"' in canvas.text
+        assert 'role="tabpanel" aria-labelledby="canvas-bottom-tab-terminal"' in canvas.text
+        assert "Trace endpoint" in canvas.text
         assert 'href="/findings/1"' in canvas.text
         assert "Open custody finding" in canvas.text
 
@@ -400,6 +420,7 @@ def test_sensitive_exports_require_authenticated_session() -> None:
             "/api/cases/1/evidence-bundle.zip",
             "/api/notices/1/sahyog-export",
             "/dispatch-tracker",
+            "/audit-log",
         ):
             response = client.get(path, follow_redirects=False)
             assert response.status_code == 303

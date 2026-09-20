@@ -1,4 +1,7 @@
-<section class="omega-graph-card" data-omega-graph aria-label="Trace graph exhibit">
+<section class="omega-graph-card" data-omega-graph aria-label="Trace graph exhibit"
+         data-strategy-endpoint="{{ '/api/traces/' ~ snapshot.id ~ '/strategy-view' if snapshot is defined and snapshot else '' }}"
+         data-case-id="{{ case.id if case is defined and case else '' }}"
+         data-trace-id="{{ snapshot.id if snapshot is defined and snapshot else '' }}">
   <script type="application/json" data-omega-graph-json>{{ omega_graph | tojson }}</script>
   <div class="omega-graph-workbench">
     <div class="omega-graph-stage">
@@ -9,12 +12,19 @@
           <p>{{ omega_graph.subtitle | default('Drag empty space to pan. Scroll to zoom. Select a node or edge for details.') }}</p>
         </div>
         <div class="omega-graph-actions">
+          <span class="omega-strategy-chip" data-strategy-chip>{{ trace_strategy|default('dominant_fund_flow')|replace('_', ' ') }}</span>
           <button type="button" data-omega-toggle="values" role="switch" aria-checked="true">Values</button>
           <button type="button" data-omega-toggle="parked" role="switch" aria-checked="true">Parked</button>
+          <button type="button" data-omega-relayout>Re-layout</button>
+          <button type="button" data-omega-compare disabled title="Select another strategy to compare">Compare previous</button>
           <button type="button" data-omega-zoom="in" aria-label="Zoom in">+</button>
           <button type="button" data-omega-zoom="out" aria-label="Zoom out">-</button>
-          <button type="button" data-omega-zoom="fit">Fit</button>
-          <button type="button" data-omega-zoom="reset">Reset</button>
+          <button type="button" data-omega-zoom="fit" aria-label="Fit graph to view">Fit</button>
+          <button type="button" data-omega-zoom="reset" aria-label="Reset graph view">Reset</button>
+          <button type="button" data-omega-fullscreen aria-label="Enter graph fullscreen">Fullscreen</button>
+          <label class="omega-export-scope"><span class="sr-only">Export scope</span><select data-omega-export-scope aria-label="Graph export scope"><option value="whole_graph">Whole graph</option><option value="visible_area">Visible area</option></select></label>
+          <button type="button" data-omega-export="png">PNG</button>
+          <button type="button" data-omega-export="svg">SVG</button>
         </div>
       </header>
       <div class="omega-graph-viewport" data-omega-viewport tabindex="0" aria-label="Trace graph exhibit">
@@ -28,11 +38,17 @@
       </section>
       <section class="omega-graph-legend" aria-label="Graph legend">
         <h2>Legend</h2>
+        <p class="omega-strategy-legend" data-strategy-legend>Loading strategy criterion...</p>
         <span><i class="omega-box seed"></i>Reported seed</span>
         <span><i class="omega-box hop"></i>Expanded hop</span>
         <span><i class="omega-box deferred"></i>Parked branch</span>
         <span><i class="omega-box terminal"></i>Terminal metadata</span>
         <span><i class="omega-line"></i>On-chain transfer</span>
+        <span data-ghost-legend hidden><i class="omega-line ghost"></i>Previous strategy primary path</span>
+      </section>
+      <section class="omega-strategy-finding" data-strategy-finding aria-live="polite">
+        <h2>Strategy-derived finding</h2>
+        <p>Loading sealed-evidence projection...</p>
       </section>
     </aside>
   </div>

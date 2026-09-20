@@ -26,8 +26,8 @@
           <div id="sample-references" class="sample-references">
             <span>Sample data</span>
             {% for sample in samples %}
-            <button class="sample-reference {{ sample.status }}" type="button" data-complaint-sample="{{ sample.ack_no }}">
-              <i aria-hidden="true"></i><b class="mono">{{ sample.ack_no }}</b><small>{{ sample.label }}</small>
+            <button class="sample-reference {{ sample.status }}" type="button" data-complaint-sample="{{ sample.ack_no }}" aria-label="{{ sample.ack_no }} sample: {{ sample.label }}">
+              <i aria-hidden="true"></i><b class="mono">{{ sample.ack_no }}</b><small>{{ sample.label }}</small><em>{{ 'Complete' if sample.status == 'complete' else 'Incomplete' }}</em>
             </button>
             {% endfor %}
           </div>
@@ -114,11 +114,11 @@
     <span class="mono">{% if record and completed_particulars == 8 %}Case loaded{% elif record %}{{ 8 - completed_particulars }} details require manual entry{% elif intake_state == "pending" %}Awaiting input{% else %}No case loaded{% endif %}</span>
     <a class="clear-button" href="/cases/new">Clear</a>
     {% if record and completed_particulars == 8 %}
-    <form method="post" action="/cases/start">
+    <form method="post" action="/cases/start" data-trace-start-form>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="ack_no" value="{{ record.ack_no }}">
       <input type="hidden" name="reviewed" value="yes">
-      <button type="submit">Start trace</button>
+      <button type="submit" data-trace-start-button>Start trace</button>
     </form>
     {% else %}
     <button type="button" disabled>Start trace</button>

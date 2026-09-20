@@ -7,7 +7,7 @@
 .canvas-workspace {
   width: 100vw;
   height: 100vh;
-  min-width: 1120px;
+  min-width: 0;
   min-height: 720px;
   overflow: hidden;
   display: flex;
@@ -181,12 +181,37 @@
 .token-usdt { background: #16a34a; }
 
 .canvas-strategy {
-  height: 63px;
+  min-height: 63px;
   flex: none;
   display: flex;
   align-items: center;
   gap: 22px;
   padding: 13px 18px;
+}
+.canvas-strategy-delta {
+  margin: -6px 4px 0;
+  color: #536176;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+@media (max-width: 1023px) {
+  .canvas-page { overflow: auto; }
+  .canvas-workspace { height: auto; min-height: 100vh; overflow: visible; }
+  .canvas-body { height: auto; display: block; }
+  .canvas-content { overflow: visible; padding: 12px; }
+  .canvas-case-card { height: auto; align-items: flex-start; flex-direction: column; }
+  .canvas-case-summary p { white-space: normal; }
+  .canvas-stats { width: 100%; overflow-x: auto; justify-content: flex-start; }
+  .canvas-strategy { height: auto; flex-wrap: wrap; gap: 10px; }
+  .canvas-strategy-title { width: 100%; flex-basis: 100%; }
+  .strategy-select-wrap { width: min(100%, 260px); flex-basis: min(100%, 260px); }
+  .canvas-workspace .strategy-select { width: 100%; }
+  .canvas-main-row, .canvas-left-column { min-width: 0; width: 100%; }
+  .canvas-footer { overflow-x: auto; }
+  .canvas-bottom-card { height: auto; min-height: 177px; }
+  .canvas-bottom-tabs { flex-wrap: wrap; gap: 8px 18px; padding: 6px 12px; }
+  .canvas-workspace .canvas-bottom-tabs button { height: 38px; }
 }
 .canvas-strategy-title { width: 109px; flex: 0 0 109px; font-size: 16px; font-weight: 600; white-space: nowrap; }
 .strategy-select-wrap {
@@ -640,6 +665,17 @@
 }
 .canvas-bottom-panel { flex: 1; min-height: 0; }
 .canvas-bottom-panel[hidden] { display: none !important; }
+.canvas-info-panel {
+  overflow: auto;
+  padding: 16px 18px;
+  color: #3c4a61;
+}
+.canvas-info-panel h2 { margin: 0 0 8px; font-size: 15px; }
+.canvas-info-panel p { max-width: 900px; margin: 0 0 12px; line-height: 1.55; }
+.canvas-info-panel dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 0; }
+.canvas-info-panel div { min-width: 0; padding: 10px; border: 1px solid #e3e8ef; border-radius: 6px; background: #fff; }
+.canvas-info-panel dt { color: #5c6880; font-size: 12px; }
+.canvas-info-panel dd { margin: 4px 0 0; color: #111a2b; font-size: 12.5px; word-break: break-word; }
 .timeline-panel {
   display: flex;
   align-items: stretch;

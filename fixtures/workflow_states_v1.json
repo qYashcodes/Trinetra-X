@@ -1,0 +1,22 @@
+{
+  "schema": "trinetra.workflow-seed/1",
+  "officers": [
+    {"pis": "74821", "name": "R. Kulkarni", "rank": "Inspector", "unit": "Crypto Tracing Desk", "role": "io"},
+    {"pis": "48207", "name": "A. Patil", "rank": "PSI", "unit": "Crypto Tracing Desk", "role": "io"},
+    {"pis": "47912", "name": "M. Shaikh", "rank": "SI", "unit": "Cyber Cell", "role": "io"},
+    {"pis": "61207", "name": "S. Deshmukh", "rank": "ACP", "unit": "Cyber Cell", "role": "supervisor"},
+    {"pis": "0834", "name": "P. Rao", "rank": "ACP", "unit": "Financial Crime", "role": "supervisor"},
+    {"pis": "0741", "name": "K. Sen", "rank": "DCP", "unit": "Cyber Operations", "role": "supervisor"}
+  ],
+  "states": [
+    {"key": "complete_no_draft", "ack_no": "NCRP/2026/MH/V3-1001", "amount_base": 7200000000, "io": "74821", "acp": "61207", "case_stage": "custody_found", "trace_status": "complete", "terminal_kind": "vasp_deposit", "credited_base": 6100000000, "vasp": "coinsphere", "notice_status": null},
+    {"key": "awaiting_countersignature", "ack_no": "NCRP/2026/MH/V3-1002", "amount_base": 18400000000, "io": "48207", "acp": "61207", "case_stage": "awaiting_countersignature", "trace_status": "complete", "terminal_kind": "vasp_deposit", "credited_base": 16500000000, "vasp": "vaultpay", "notice_status": "awaiting_countersignature"},
+    {"key": "returned_for_amendment", "ack_no": "NCRP/2026/KA/V3-1003", "amount_base": 9300000000, "io": "47912", "acp": "0834", "case_stage": "notice_draft", "trace_status": "complete", "terminal_kind": "vasp_deposit", "credited_base": 8100000000, "vasp": "northbridge", "notice_status": "draft", "tracker_status": "drafted", "note": "Returned for amendment; ACP remarks recorded in fixture state."},
+    {"key": "sla_green", "ack_no": "NCRP/2026/MH/V3-1004", "amount_base": 12800000000, "io": "74821", "acp": "61207", "case_stage": "notice_out", "trace_status": "complete", "terminal_kind": "vasp_deposit", "credited_base": 11200000000, "vasp": "coinsphere", "notice_status": "dispatched", "dispatch_age_minutes": 120},
+    {"key": "sla_amber", "ack_no": "NCRP/2026/DL/V3-1005", "amount_base": 23600000000, "io": "48207", "acp": "0834", "case_stage": "notice_out", "trace_status": "complete", "terminal_kind": "vasp_deposit", "credited_base": 20200000000, "vasp": "vaultpay", "notice_status": "dispatched", "dispatch_age_minutes": 900},
+    {"key": "breached_escalated", "ack_no": "NCRP/2026/GJ/V3-1006", "amount_base": 31500000000, "io": "47912", "acp": "0834", "case_stage": "notice_out", "trace_status": "complete", "terminal_kind": "vasp_deposit", "credited_base": 28300000000, "vasp": "northbridge", "notice_status": "dispatched", "dispatch_age_minutes": 1700, "escalation_chain": ["61207", "0741"]},
+    {"key": "simulated_restrained_response", "ack_no": "NCRP/2026/MH/V3-1007", "amount_base": 44200000000, "io": "74821", "acp": "61207", "case_stage": "restraint_confirmed", "trace_status": "complete", "terminal_kind": "vasp_deposit", "credited_base": 39100000000, "vasp": "coinsphere", "notice_status": "dispatched", "dispatch_age_minutes": 360, "response_restrained_base": 32000000000},
+    {"key": "failed_trace", "ack_no": "NCRP/2026/WB/V3-1008", "amount_base": 5800000000, "io": "48207", "acp": "0834", "case_stage": "trace_failed", "trace_status": "failed", "terminal_kind": "provider_error", "terminal_reason": "Fixture provider returned an explicit non-custody error.", "notice_status": null},
+    {"key": "fresh_live_ready", "ack_no": "NCRP/2026/MH/V3-1009", "amount_base": 4100000000, "io": "47912", "acp": "61207", "case_stage": "intake", "trace_status": null, "terminal_kind": null, "notice_status": null}
+  ]
+}

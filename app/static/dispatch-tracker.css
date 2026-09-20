@@ -82,7 +82,7 @@
 
 .tracker-filters {
   display: grid;
-  grid-template-columns: 190px 220px 260px auto auto minmax(0, 1fr);
+  grid-template-columns: repeat(4, minmax(150px, 1fr)) auto auto;
   align-items: end;
   gap: 10px;
   padding: 12px;
@@ -90,6 +90,15 @@
   border-radius: 8px;
   background: #fff;
 }
+
+.tracker-check {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+}
+.tracker-check input { width: auto; height: auto; }
+.sla-green { color: #137344 !important; }
+.sla-amber { color: #875a05 !important; }
+.sla-red { color: #b42318 !important; font-weight: 700; }
 
 .tracker-filters label,
 .tracker-update-form,
@@ -220,7 +229,7 @@
 }
 
 .tracker-escalate-form {
-  grid-template-columns: minmax(160px, 1fr) auto;
+  grid-template-columns: minmax(160px, 1fr) minmax(170px, 1fr) auto;
 }
 
 .tracker-table details {
@@ -253,4 +262,21 @@
     flex-direction: column;
   }
   .tracker-counts { min-width: 0; width: 100%; }
+  .dispatch-tracker-app { height: auto; min-height: 100vh; overflow: visible; }
+  .dispatch-tracker-shell { overflow: visible; }
+  .tracker-table-wrap { overflow: visible; border: 0; background: transparent; }
+  .tracker-table { min-width: 0; display: block; }
+  .tracker-table thead { display: none; }
+  .tracker-table tbody, .tracker-table tr, .tracker-table td { display: block; width: 100%; box-sizing: border-box; }
+  .tracker-table tr { margin-bottom: 12px; border: 1px solid #d8e0ea; border-radius: 8px; background: #fff; overflow: hidden; }
+  .tracker-table td { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 5px 12px; border-bottom: 1px solid #edf1f6; overflow-wrap: anywhere; }
+  .tracker-table td::before { content: attr(data-label); grid-row: 1 / span 8; color: #647086; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+  .tracker-update-form, .tracker-escalate-form { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 600px) {
+  .dispatch-tracker-shell { padding: 10px; }
+  .tracker-counts { grid-template-columns: repeat(2, 1fr); }
+  .tracker-table td { grid-template-columns: 1fr; }
+  .tracker-table td::before { grid-row: auto; }
 }

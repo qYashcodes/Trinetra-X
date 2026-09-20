@@ -51,6 +51,47 @@ class Case(SQLModel, table=True):
     updated_ts_ms: int
 
 
+class OfficerProfile(SQLModel, table=True):
+    """Stable officer identity used for assignment and escalation scope.
+
+    Login sessions deliberately remain separate: a session is evidence of one
+    authentication event, while this row is the durable directory entry.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    pis: str = Field(index=True, unique=True)
+    name: str
+    rank: str
+    unit: str
+    role: OfficerRole = Field(index=True)
+    active: bool = Field(default=True, index=True)
+    created_ts_ms: int
+    updated_ts_ms: int
+
+
+class CaseAssignment(SQLModel, table=True):
+    __table_args__ = (UniqueConstraint("case_id", name="uq_caseassignment_case"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    case_id: int = Field(index=True, foreign_key="case.id")
+    assigned_io_pis: str = Field(index=True)
+    supervising_acp_pis: str = Field(index=True)
+    created_ts_ms: int
+    updated_ts_ms: int
+
+
+class CaseWatcher(SQLModel, table=True):
+    __table_args__ = (
+        UniqueConstraint("case_id", "officer_pis", name="uq_casewatcher_case_officer"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    case_id: int = Field(index=True, foreign_key="case.id")
+    officer_pis: str = Field(index=True)
+    reason: str
+    created_ts_ms: int
+
+
 class TraceSnapshot(SQLModel, table=True):
     __table_args__ = (
         UniqueConstraint("case_id", "cache_identity", name="uq_tracesnapshot_case_cache_identity"),
@@ -533,6 +574,88 @@ class Notice(SQLModel, table=True):
     created_ts_ms: int
 
 
+class NoticeDraft(SQLModel, table=True):
+    __table_args__ = (UniqueConstraint("finding_id", name="uq_noticedraft_finding"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    case_id: int = Field(index=True, foreign_key="case.id")
+    finding_id: int = Field(index=True, foreign_key="finding.id")
+    notice_id: int | None = Field(default=None, index=True, foreign_key="notice.id")
+    stage: str = Field(default="parameters", index=True)
+    notice_type: str = Field(default="freeze", index=True)
+    parameters: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    annex_enabled: bool = False
+    generated: bool = False
+    dirty: bool = False
+    active_version_no: int | None = None
+    attested_by_pis: str | None = Field(default=None, index=True)
+    attested_ts_ms: int | None = None
+    attested_version_no: int | None = None
+    created_by_pis: str = Field(index=True)
+    created_ts_ms: int
+    updated_ts_ms: int
+
+
+class NoticeVersion(SQLModel, table=True):
+    __table_args__ = (
+        UniqueConstraint("draft_id", "version_no", name="uq_noticeversion_draft_version"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    draft_id: int = Field(index=True, foreign_key="noticedraft.id")
+    version_no: int = Field(index=True)
+    parent_version_id: int | None = Field(default=None, foreign_key="noticeversion.id")
+    tag: str = Field(default="draft", index=True)
+    content: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    rendered_html: str
+    content_sha256: str = Field(index=True)
+    change_summary: str = "Initial generated draft"
+    acp_remarks: str | None = None
+    caused_by_remarks: str | None = None
+    immutable: bool = False
+    countersigned_by_pis: str | None = Field(default=None, index=True)
+    countersigned_ts_ms: int | None = None
+    created_by_pis: str = Field(index=True)
+    created_ts_ms: int
+
+
+class NoticeAttachment(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    draft_id: int = Field(index=True, foreign_key="noticedraft.id")
+    version_id: int | None = Field(default=None, index=True, foreign_key="noticeversion.id")
+    slot: str = Field(index=True)
+    source: str = Field(index=True)
+    original_name: str
+    mime_type: str
+    size_bytes: int
+    sha256: str = Field(index=True)
+    storage_ref: str
+    provenance: str | None = None
+    simulated: bool = False
+    superseded_by_id: int | None = Field(default=None, foreign_key="noticeattachment.id")
+    created_by_pis: str = Field(index=True)
+    created_ts_ms: int
+
+
+class NoticeVerificationState(SQLModel, table=True):
+    __table_args__ = (
+        UniqueConstraint(
+            "draft_id",
+            "officer_session_id",
+            name="uq_noticeverification_draft_session",
+        ),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    draft_id: int = Field(index=True, foreign_key="noticedraft.id")
+    officer_session_id: int = Field(index=True, foreign_key="officersession.id")
+    failure_count: int = 0
+    locked_until_ts_ms: int | None = None
+    last_method: str | None = None
+    verified_ts_ms: int | None = None
+    updated_ts_ms: int
+
+
 class NoticeTrackerEvent(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     notice_id: int = Field(index=True, foreign_key="notice.id")
@@ -553,6 +676,62 @@ class Dispatch(SQLModel, table=True):
     attempts: int = 0
     last_error: str | None = None
     created_ts_ms: int
+    updated_ts_ms: int
+
+
+class DispatchRecord(SQLModel, table=True):
+    __table_args__ = (UniqueConstraint("notice_id", name="uq_dispatchrecord_notice"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    case_id: int = Field(index=True, foreign_key="case.id")
+    notice_id: int = Field(index=True, foreign_key="notice.id")
+    notice_version_id: int | None = Field(default=None, index=True, foreign_key="noticeversion.id")
+    notice_type: str = Field(default="freeze", index=True)
+    vasp_label: str
+    stage: str = Field(default="drafted", index=True)
+    acknowledgement_state: str = Field(default="awaiting", index=True)
+    dispatched_ts_ms: int | None = Field(default=None, index=True)
+    acknowledged_ts_ms: int | None = None
+    closed_ts_ms: int | None = None
+    sla_window_minutes: int = 1_440
+    sla_due_ts_ms: int | None = Field(default=None, index=True)
+    sla_frozen_remaining_ms: int | None = None
+    sla_override_source: str | None = None
+    sla_breach_audit_event_id: str | None = Field(default=None, index=True)
+    assigned_io_pis: str = Field(index=True)
+    supervising_acp_pis: str = Field(index=True)
+    current_owner_pis: str = Field(index=True)
+    escalation_level: int = 0
+    created_ts_ms: int
+    updated_ts_ms: int
+
+
+class CaseEscalationAssignment(SQLModel, table=True):
+    __table_args__ = (
+        UniqueConstraint(
+            "dispatch_record_id",
+            "level",
+            name="uq_caseescalation_dispatch_level",
+        ),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    case_id: int = Field(index=True, foreign_key="case.id")
+    dispatch_record_id: int = Field(index=True, foreign_key="dispatchrecord.id")
+    level: int = Field(index=True)
+    previous_owner_pis: str | None = Field(default=None, index=True)
+    new_owner_pis: str = Field(index=True)
+    reason: str
+    assigned_by_pis: str = Field(index=True)
+    created_ts_ms: int
+
+
+class VaspSlaOverride(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    vasp_key: str = Field(index=True, unique=True)
+    acknowledgement_minutes: int = 1_440
+    source: str = "fixture_configuration"
+    active: bool = True
     updated_ts_ms: int
 
 
@@ -605,3 +784,13 @@ class OfficerSession(SQLModel, table=True):
     cases_touched: list[int] = Field(default_factory=list, sa_column=Column(JSON))
     traces_run: int = 0
     artifacts_exported: int = 0
+
+
+class AuditOutbox(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    event_id: str = Field(index=True, unique=True)
+    payload: dict[str, Any] = Field(sa_column=Column(JSON))
+    created_ts_ms: int = Field(index=True)
+    flushed_ts_ms: int | None = Field(default=None, index=True)
+    attempts: int = 0
+    last_error: str | None = None

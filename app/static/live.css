@@ -90,11 +90,14 @@
 .live-canvas-casebar dl div { min-width:0; padding:2px 12px; border-left:1px solid #e1e6ed; }
 .live-canvas-casebar dt,.live-canvas-strategy small { color:#8a94a8; font-size:11px; }
 .live-canvas-casebar dd { margin:5px 0 0; overflow-wrap:anywhere; color:#071936; font-size:12px; font-weight:700; }
-.live-canvas-strategy { display:grid; grid-template-columns:minmax(220px,1.2fr) repeat(3,minmax(150px,1fr)); gap:0; align-items:center; margin-top:12px; border:1px solid #dbe1e9; border-radius:8px; background:#fff; overflow:hidden; }
+.live-canvas-strategy { display:grid; grid-template-columns:minmax(220px,1.2fr) repeat(4,minmax(130px,1fr)); gap:0; align-items:center; margin-top:12px; border:1px solid #dbe1e9; border-radius:8px; background:#fff; overflow:hidden; }
 .live-canvas-strategy div { min-height:62px; display:grid; align-content:center; gap:4px; padding:11px 20px; border-left:1px solid #e5e9f0; }
 .live-canvas-strategy div:first-child { border-left:0; grid-template-columns:auto 1fr; align-items:center; align-content:center; column-gap:14px; }
 .live-canvas-strategy b { color:#071936; font-size:15px; }
 .live-canvas-strategy span { overflow-wrap:anywhere; color:#071936; font-size:13px; font-weight:700; }
+.live-canvas-strategy select,.live-canvas-strategy button { min-height:36px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; padding:0 10px; color:#071936; }
+.live-canvas-strategy form { padding:11px 14px; }
+.live-canvas-strategy-delta { margin:6px 2px 12px; color:#536176; font-size:12px; }
 .omega-live-graph { margin-top:12px; overflow:hidden; border:1px solid #263244; border-radius:8px; background:#101722; color:#e8edf7; box-shadow:0 18px 34px rgba(16,23,34,.14); }
 .omega-live-workbench { display:grid; grid-template-columns:minmax(0,1fr) 340px; min-height:520px; }
 .omega-live-stage { min-width:0; display:grid; grid-template-rows:auto 1fr; }

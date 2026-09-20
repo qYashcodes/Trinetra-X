@@ -8,6 +8,21 @@ Verification command:
 C:\Users\Yash\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe -m pytest -q
 ```
 
+## v3 additive workflow status (2026-09-20)
+
+| Capability | Level | Evidence and next level |
+| --- | --- | --- |
+| Validated working context, case scoping and role registry | integration-tested | Server-authoritative context, assignment checks, pre-mount role removal and scoped navigation/workspace state are locally tested. Live verification requires deployment identity and tenant-boundary testing. |
+| Event-driven trace presentation and immutable retrace | integration-tested | Persisted SSE/JSON events drive progress; failed/unsupported child attempts remain retained and inactive; completed/incomplete child snapshots preserve parent linkage. Live verification requires a newly executed credentialed retrace. |
+| Strategy projection and Omega SVG comparison/export | integration-tested | Engine-enumerated strategies recompute rank, width, emphasis, explanation and projected findings without mutating sealed transfers. Browser exports include strategy, comparison and caption metadata. |
+| Six-stage notice workflow and immutable PDF | integration-tested | Parameter validation, attachments, versions, attestation, session lockout, ACP return loop, diffs and Playwright/pypdf A4 validation are locally tested. Legal copy is still pending review. |
+| Portal, Email and Nodal-copy delivery | unavailable | Local channel attempts are records only. Approved schemas, credentials, authority and independently verified delivery receipts are required. |
+| SAHYOG route | fixture-tested | SAHYOG is an unmistakably simulated/specimen channel and never claims external delivery. Approved integration evidence is required for promotion. |
+| CCTNS and SAHYOG re-verification | unavailable | Exact sign-in labels and lockout UI exist; real methods fail closed because no approved authentication integration is configured. |
+| DispatchRecord, SLA and case-specific escalation | integration-tested | Shared records, 24-hour/per-VASP SLA, frozen clocks, exactly-once breach outbox events, owner chains and ACP watchers are locally tested. |
+| Workflow seed v1 | fixture-tested | Separate idempotent nine-state fixture spans three IOs and two ACPs without modifying canonical trace fixtures. |
+| Canonical audit v2 outbox | integration-tested | Legacy JSONL rows remain verifiable; new workflow mutations queue stable event IDs transactionally and flush idempotently. |
+
 ## Phase Status
 
 | Phase | Status | Evidence |

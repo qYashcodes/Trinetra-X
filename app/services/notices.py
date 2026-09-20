@@ -10,6 +10,14 @@ from app.services.hash import sha256_bytes
 def notice_view_model(case: dict, snapshot: dict, notice: dict | None = None) -> dict:
     data = demo_case()
     terminal = snapshot["terminal"]
+    decimals = int(snapshot.get("asset", {}).get("decimals", 6))
+    amount_base = terminal.get("amount_credited_base")
+    if amount_base is None:
+        amount_display = "Not recorded"
+    else:
+        hundredths = int(amount_base) * 100 // (10**decimals)
+        amount_display = f"{hundredths // 100:,}.{hundredths % 100:02d} {snapshot.get('asset', {}).get('symbol', 'USDT')}"
+    custodian_label = str(terminal.get("custodian_key") or "").replace("_", " ").title()
     return {
         "letterhead": {
             "govt_line": "GOVERNMENT OF MAHARASHTRA - POLICE DEPARTMENT",
@@ -19,14 +27,14 @@ def notice_view_model(case: dict, snapshot: dict, notice: dict | None = None) ->
         },
         "notice_no": (notice or {}).get("notice_no", data["notice"]["notice_no"]),
         "date_ist": "2026-08-30 09:41:00 IST",
-        "addressee": data["entity"]["name"],
-        "case": {"ack_no": data["case"]["ack_no"]},
+        "addressee": custodian_label or data["entity"]["name"],
+        "case": {"ack_no": case.get("ack_no", data["case"]["ack_no"])},
         "legal_basis": data["notice"]["legal_basis"],
         "particulars": [
-            {"label": "Reported address", "value": data["case"]["reported_address"]},
-            {"label": "Payment transaction hash", "value": data["case"]["payment_txid"]},
+            {"label": "Reported address", "value": case.get("reported_address", data["case"]["reported_address"])},
+            {"label": "Payment transaction hash", "value": case.get("payment_txid", data["case"]["payment_txid"])},
             {"label": "Deposit address", "value": terminal.get("deposit_address")},
-            {"label": "Amount credited", "value": "17,880.00 USDT"},
+            {"label": "Amount credited", "value": amount_display},
             {"label": "Snapshot SHA-256", "value": snapshot["sha256"]},
         ],
         "path_summary": [

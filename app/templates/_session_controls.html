@@ -20,6 +20,9 @@
     </span>
   </div>
   <a class="session-link" href="/sessions">Sessions</a>
+  {% if user.role == 'supervisor' %}
+  <span class="session-role-banner" role="status">Acting as ACP countersignature officer</span>
+  {% endif %}
   <form method="post" action="/auth/prototype" class="session-switch-form">
     {% if user.role == 'supervisor' %}
     <input type="hidden" name="role" value="io">

@@ -5,7 +5,8 @@ from typing import Any
 
 from sqlmodel import Session, select
 
-from app.models import Case, Dispatch, Finding, Notice, NoticeTrackerEvent
+from app.models import Case, Dispatch, DispatchRecord, Finding, Notice, NoticeTrackerEvent
+from app.services.dispatch_workflow import dispatch_sla_view
 from app.services.time import now_ms
 
 
@@ -80,14 +81,27 @@ def tracker_rows(
     status_filter: str | None = None,
     vasp_filter: str | None = None,
     case_filter: str | None = None,
+    visible_case_ids: set[int] | None = None,
+    io_filter: str | None = None,
+    acp_filter: str | None = None,
+    notice_type_filter: str | None = None,
+    channel_filter: str | None = None,
+    escalated_only: bool = False,
+    breached_only: bool = False,
+    active_case_id: int | None = None,
     now_ts_ms: int | None = None,
 ) -> list[dict[str, Any]]:
     now = now_ts_ms if now_ts_ms is not None else now_ms()
     notices = session.exec(select(Notice).order_by(Notice.created_ts_ms.desc(), Notice.id.desc())).all()
     dispatches_by_notice = _dispatches_by_notice(session)
     events_by_notice = _events_by_notice(session)
+    records_by_notice = _records_by_notice(session)
     rows: list[dict[str, Any]] = []
     for notice in notices:
+        if visible_case_ids is not None and notice.case_id not in visible_case_ids:
+            continue
+        if active_case_id is not None and notice.case_id != active_case_id:
+            continue
         case = session.get(Case, notice.case_id)
         finding = session.get(Finding, notice.finding_id)
         row = tracker_row(
@@ -96,6 +110,7 @@ def tracker_rows(
             finding=finding,
             dispatches=dispatches_by_notice.get(int(notice.id or 0), []),
             events=events_by_notice.get(int(notice.id or 0), []),
+            dispatch_record=records_by_notice.get(int(notice.id or 0)),
             now_ts_ms=now,
         )
         if status_filter and row["effective_status"] != status_filter:
@@ -103,6 +118,18 @@ def tracker_rows(
         if vasp_filter and vasp_filter.lower() not in row["vasp_label"].lower():
             continue
         if case_filter and case_filter.lower() not in row["case_ref"].lower():
+            continue
+        if io_filter and io_filter.lower() not in row["assigned_io_pis"].lower():
+            continue
+        if acp_filter and acp_filter.lower() not in row["supervising_acp_pis"].lower():
+            continue
+        if notice_type_filter and notice_type_filter != row["notice_type"]:
+            continue
+        if channel_filter and not any(channel_filter.lower() in item.channel.lower() for item in row["dispatches"]):
+            continue
+        if escalated_only and row["escalation_level"] <= 0:
+            continue
+        if breached_only and not row["sla"]["breached"]:
             continue
         rows.append(row)
     return sorted(rows, key=_tracker_sort_key)
@@ -127,13 +154,28 @@ def tracker_row(
     finding: Finding | None,
     dispatches: list[Dispatch],
     events: list[NoticeTrackerEvent],
+    dispatch_record: DispatchRecord | None = None,
     now_ts_ms: int,
 ) -> dict[str, Any]:
     first_dispatch = notice.dispatched_ts_ms
     dispatch_ts_values = [row.created_ts_ms for row in dispatches if row.created_ts_ms is not None]
     if first_dispatch is None and dispatch_ts_values:
         first_dispatch = min(dispatch_ts_values)
-    deadline_ts_ms = first_dispatch + DEADLINE_MS if first_dispatch is not None else None
+    if dispatch_record is not None:
+        first_dispatch = dispatch_record.dispatched_ts_ms or first_dispatch
+        deadline_ts_ms = dispatch_record.sla_due_ts_ms
+        sla = dispatch_sla_view(dispatch_record, timestamp_ms=now_ts_ms)
+    else:
+        deadline_ts_ms = first_dispatch + DEADLINE_MS if first_dispatch is not None else None
+        legacy_total = DEADLINE_MS
+        legacy_remaining = (deadline_ts_ms - now_ts_ms) if deadline_ts_ms is not None else legacy_total
+        sla = {
+            "remaining_ms": legacy_remaining,
+            "ratio": max(0.0, min(1.0, legacy_remaining / legacy_total)),
+            "tone": "red" if legacy_remaining < 0 else "amber" if legacy_remaining <= legacy_total / 2 else "green",
+            "breached": legacy_remaining < 0,
+            "frozen": False,
+        }
     base_status = notice.tracker_status or _status_from_notice(notice)
     effective_status = _effective_status(base_status, deadline_ts_ms=deadline_ts_ms, now_ts_ms=now_ts_ms)
     return {
@@ -159,6 +201,15 @@ def tracker_row(
         "dispatches": dispatches,
         "events": events,
         "manual_notice": "Status updated manually by officer" if events else "No manual tracker update recorded",
+        "dispatch_record": dispatch_record,
+        "notice_version_id": dispatch_record.notice_version_id if dispatch_record else None,
+        "notice_type": dispatch_record.notice_type if dispatch_record else "freeze",
+        "acknowledgement_state": dispatch_record.acknowledgement_state if dispatch_record else "awaiting",
+        "assigned_io_pis": dispatch_record.assigned_io_pis if dispatch_record else notice.created_by_pis,
+        "supervising_acp_pis": dispatch_record.supervising_acp_pis if dispatch_record else "",
+        "current_owner_pis": dispatch_record.current_owner_pis if dispatch_record else notice.created_by_pis,
+        "escalation_level": dispatch_record.escalation_level if dispatch_record else (1 if base_status == "escalated" else 0),
+        "sla": sla,
     }
 
 
@@ -216,6 +267,11 @@ def _events_by_notice(session: Session) -> dict[int, list[NoticeTrackerEvent]]:
     for row in rows:
         grouped.setdefault(row.notice_id, []).append(row)
     return grouped
+
+
+def _records_by_notice(session: Session) -> dict[int, DispatchRecord]:
+    rows = session.exec(select(DispatchRecord).order_by(DispatchRecord.id)).all()
+    return {row.notice_id: row for row in rows}
 
 
 def _tracker_sort_key(row: dict[str, Any]) -> tuple[int, int, str]:

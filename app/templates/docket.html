@@ -25,6 +25,41 @@
     {% endfor %}
   </section>
 
+  {% if user.role == 'supervisor' %}
+  <section class="acp-draft-status" aria-labelledby="acp-draft-status-title" data-acp-case-toggle data-panel-id="acp-dispatch-status" data-roles="supervisor admin">
+    <header>
+      <div>
+        <span>ACP supervisor view</span>
+        <h2 id="acp-draft-status-title">Draft notice status</h2>
+      </div>
+      <div class="acp-view-toggle" role="tablist" aria-label="ACP case queue view">
+        <button type="button" class="active" role="tab" aria-selected="true" data-acp-case-view="all">All IO cases</button>
+        <button type="button" role="tab" aria-selected="false" data-acp-case-view="escalated">Escalated only</button>
+      </div>
+    </header>
+    <div class="acp-status-summary">
+      <strong><span data-acp-visible-count>{{ docket.supervisor_cases | length }}</span> cases shown</strong>
+      <span>{{ docket.supervisor_escalated_count }} escalated case{{ '' if docket.supervisor_escalated_count == 1 else 's' }} need ACP attention</span>
+    </div>
+    <div class="acp-case-list">
+      {% for item in docket.supervisor_cases %}
+      <article class="acp-case-card {{ item.tone }}" data-acp-case data-escalated="{{ 'true' if item.escalated else 'false' }}">
+        <div>
+          <strong class="mono">{{ item.ack_no }}</strong>
+          <span>{{ item.io_name }}</span>
+        </div>
+        <p>{{ item.stage }}</p>
+        <footer>
+          <b>{{ item.status }}</b>
+          <time class="mono">{{ item.age }}</time>
+        </footer>
+      </article>
+      {% endfor %}
+      <p class="acp-empty" data-acp-empty hidden>No escalated cases in the current supervisor queue.</p>
+    </div>
+  </section>
+  {% endif %}
+
   {% if snapshot_history | length > 1 %}
   <section class="snapshot-history" aria-label="Retained trace history"><header><h2>Retained trace history</h2><span>{{ snapshot_history | length }} snapshots</span></header><ol>{% for item in snapshot_history %}<li class="{{ 'current' if loop.first else 'superseded' }}"><a class="mono" href="/traces/{{ item.id }}">Snapshot {{ item.id }}</a><span>{{ item.result_json.get('engine', {}).get('mode', 'fixture') | upper }}</span><time class="mono">{{ item.closed_ts_ms | ist }}</time><small>{{ 'Current result' if loop.first else 'Superseded, retained' }}</small></li>{% endfor %}</ol>{% for event in retrace_audit %}<p class="snapshot-audit">Re-trace by <b class="mono">{{ event.actor }}</b> at {{ event.ts_ms | ist }}; {{ event.data.get('prior_export_count', 0) }} earlier export action(s) remain immutable.</p>{% endfor %}</section>
   {% endif %}
@@ -32,7 +67,7 @@
   <section class="docket-controls" aria-label="Case filters">
     <div class="docket-filter-row">
       {% for filter in docket.filters %}
-      <button class="docket-filter {{ 'active' if filter.active else '' }}" type="button">
+      <button class="docket-filter {{ 'active' if filter.active else '' }}" type="button" data-docket-filter="{{ filter.key }}" aria-pressed="{{ 'true' if filter.active else 'false' }}">
         <i class="{{ filter.tone }}" aria-hidden="true"></i>
         <span>{{ filter.label }}</span>
         <b class="mono">{{ filter.count }}</b>
@@ -41,12 +76,13 @@
     </div>
     <div class="docket-search-row">
       <label class="sr-only" for="docket-search">Filter cases</label>
-      <input class="mono" id="docket-search" type="search" placeholder="Filter by reference, custodian...">
+      <input class="mono" id="docket-search" type="search" placeholder="Filter by reference, custodian..." autocomplete="off">
       <a class="button" href="/cases/new">New case</a>
     </div>
   </section>
 
-  <section class="case-trail-panel" aria-label="Working case trail">
+  {% if user.role in ['io', 'admin'] %}
+  <section class="case-trail-panel" aria-label="Working case trail" data-panel-id="working-trail" data-roles="io admin">
     <header>
       <div>
         <span>Working case trail</span>
@@ -68,6 +104,7 @@
       {% endfor %}
     </ol>
   </section>
+  {% endif %}
 
   <section class="docket-table-wrap" aria-label="Cases in this docket">
     <table class="docket-table">
@@ -77,40 +114,44 @@
       </colgroup>
       <thead>
         <tr>
-          <th>Acknowledgement</th>
-          <th>Amount reported</th>
+          <th><button class="docket-sort" type="button" data-docket-sort="ack">Acknowledgement</button></th>
+          <th><button class="docket-sort" type="button" data-docket-sort="amount">Amount reported</button></th>
           <th>Traced to</th>
           <th>Recovered / at rest</th>
-          <th>Stage</th>
-          <th>Age</th>
+          <th><button class="docket-sort" type="button" data-docket-sort="stage">Stage</button></th>
+          <th><button class="docket-sort" type="button" data-docket-sort="age">Age</button></th>
         </tr>
       </thead>
       <tbody>
         {% for row in docket.rows %}
-        <tr class="{{ 'is-active-case' if row.active else '' }}" data-docket-row data-active-case="{{ 'true' if row.active else 'false' }}">
-          <td>
-            <a class="docket-ack mono" href="{{ '/cases/' ~ case.id ~ '/canvas?snapshot=' ~ snapshot.id if row.active else '#' }}">
+        <tr class="{{ 'is-active-case' if row.active else '' }}" data-docket-row data-active-case="{{ 'true' if row.active else 'false' }}" data-filter-groups="{{ row.filter_groups | join(' ') }}" data-search-text="{{ row.search_text }}" data-sort-ack="{{ row.ack_no }}" data-sort-amount="{{ row.amount_base }}" data-sort-stage="{{ row.stage }}" data-sort-age="{{ row.age_rank }}">
+          <td data-label="Acknowledgement">
+            <a class="docket-ack mono" href="{{ '/cases/' ~ row.case_id ~ '/canvas?snapshot=' ~ row.snapshot_id if row.case_id is defined and row.snapshot_id else ('/cases/' ~ case.id ~ '/canvas?snapshot=' ~ snapshot.id if row.active else '/docket') }}">
               <i class="{{ row.status_tone }}" aria-hidden="true"></i><span>{{ row.ack_no }}</span>
             </a>
             {% if row.active %}<span class="active-case-pill">Working case</span>{% endif %}
           </td>
-          <td class="docket-amount mono">{{ row.amount_base|amount }}</td>
-          <td class="docket-traced {{ row.traced_tone }}">{{ row.traced_to }}</td>
-          <td>
+          <td data-label="Amount reported" class="docket-amount mono">{{ row.amount_base|amount }}</td>
+          <td data-label="Traced to" class="docket-traced {{ row.traced_tone }}">{{ row.traced_to }}</td>
+          <td data-label="Recorded response">
             <div class="docket-recovery mono">
               {% if row.recovered_base is defined %}{{ row.recovered_base|amount_number }} {{ row.recovered_label }}{% else %}{{ row.recovered_label }}{% endif %}
             </div>
             <div class="docket-progress"><i class="{{ row.progress_tone }}" style="width: {{ row.progress|default(0) }}%"></i></div>
           </td>
-          <td>
+          <td data-label="Stage">
             <div class="docket-stage {{ 'with-linked' if row.linked else '' }}">
               <span>{{ row.stage }}</span>
+              <em class="docket-stage-badge {{ row.status_tone }}">{{ row.status_label }}</em>
               {% if row.linked %}<b>{{ row.linked }} linked</b>{% endif %}
             </div>
           </td>
-          <td class="docket-age mono {{ row.age_tone|default('') }}">{{ row.age }}</td>
+          <td data-label="Age" class="docket-age mono {{ row.age_tone|default('') }}">{{ row.age }}</td>
         </tr>
         {% endfor %}
+        <tr class="docket-empty-row" data-docket-empty hidden>
+          <td colspan="6">No cases match your filters.</td>
+        </tr>
       </tbody>
     </table>
   </section>
@@ -119,7 +160,7 @@
 
 {% block actionbar %}
 <div class="docket-actionbar">
-  <p><i></i>Two cases need attention: one notice past its acknowledgement period and one trace stalled. Both appear under the Needs attention filter.</p>
-  <span class="mono">{{ docket.rows|length }} of 37 shown</span>
+  <p><i></i>{{ docket.attention_count }} case{{ '' if docket.attention_count == 1 else 's' }} need attention. Review the Needs attention filter for explicit overdue, escalated, or failed states.</p>
+  <span class="mono" data-docket-count>{{ docket.rows|length }} of {{ docket.total_count }} shown</span>
 </div>
 {% endblock %}

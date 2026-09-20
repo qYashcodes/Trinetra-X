@@ -84,7 +84,7 @@
           <button type="button" data-copy-address data-address="{{ finding.deposit_address }}" class="mono">{{ finding.deposit_address }}</button>
           <p aria-live="polite" data-copy-hint>Select to copy. The address is quoted verbatim in the notice.</p>
         </section>
-        <form id="finding-review-form" class="finding-review-form" method="post" action="/findings/{{ finding.id }}/checks">
+        {% if user.role in ['io', 'admin'] %}<form id="finding-review-form" class="finding-review-form" method="post" action="/findings/{{ finding.id }}/checks" data-panel-id="pre-notice-review" data-roles="io admin">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <fieldset id="pre-notice-review">
             <legend>Pre-notice review</legend>
@@ -96,7 +96,7 @@
             <p data-ready-copy>{% if blocked_count %}The notice cannot be drafted until every confirmation above is recorded against your name.{% else %}Every confirmation is recorded. The notice is ready to prepare.{% endif %}</p>
             <button type="submit" name="action" value="prepare"{{ ' disabled' if blocked_count else '' }} data-prepare-notice>Prepare freeze notice</button>
           </div>
-        </form>
+        </form>{% else %}<section class="finding-review-form" data-panel-id="shared-finding-review"><div class="finding-review-action"><p>Review checks are visible to the assigned investigating officer. This ACP view remains read-only.</p></div></section>{% endif %}
       </aside>
     </div>
   </div>

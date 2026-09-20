@@ -133,6 +133,36 @@ def capability_matrix(flags: dict[str, dict[str, object]] | None = None) -> list
             "detail": "Draft, countersignature and specimen dispatch are local-only.",
         },
         {
+            "key": "v3_working_context",
+            "name": "Scoped working context",
+            "state": "integration-tested",
+            "detail": "Server-authoritative case, mode and record context is locally tested with assignment-based access checks.",
+        },
+        {
+            "key": "v3_strategy_projection",
+            "name": "Trace strategy projection",
+            "state": "integration-tested",
+            "detail": "Engine-enumerated strategy views recompute presentation without changing sealed trace evidence.",
+        },
+        {
+            "key": "v3_notice_workflow",
+            "name": "Versioned notice workflow and PDF",
+            "state": "integration-tested",
+            "detail": "Immutable notice versions, attachments, attestation, review loops and validated A4 artifacts are tested locally; statutory labels remain specimens pending legal review.",
+        },
+        {
+            "key": "v3_dispatch_oversight",
+            "name": "Dispatch oversight and escalation",
+            "state": "integration-tested",
+            "detail": "Shared dispatch records, SLA accounting, case-specific owner chains and audit-linked oversight are tested locally; external delivery remains simulated or unavailable.",
+        },
+        {
+            "key": "v3_audit_outbox",
+            "name": "Canonical workflow audit outbox",
+            "state": "integration-tested",
+            "detail": "Stable workflow event IDs are durably queued and idempotently appended to the legacy-compatible hash chain.",
+        },
+        {
             "key": "bridge_defi_decoders",
             "name": "Bridge and DeFi decoders",
             "state": "enabled" if protocol_decoders_enabled else "fixture-tested",

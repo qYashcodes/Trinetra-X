@@ -58,6 +58,7 @@ def test_main_screens_use_local_resolvable_assets(client: TestClient) -> None:
         response = client.get(route)
         assert response.status_code == 200
         assert "Switch to dark console" not in response.text
+        assert 'class="skip-link" href="#main-content"' in response.text
         assert "cdn." not in response.text.lower()
         assert "unpkg.com" not in response.text.lower()
         assert "jsdelivr" not in response.text.lower()
@@ -87,6 +88,90 @@ def test_dispatch_visual_state_is_pending_not_success() -> None:
     assert ".notice-sendbar.sent { border-left-color:#16a34a" not in notice_css
     assert ".notice-state.sent i { background:#c98a12" in notice_css
     assert ".notice-sendbar.sent { border-left-color:#c98a12" in notice_css
+
+
+def test_accessibility_hooks_for_canvas_and_explanation(client: TestClient) -> None:
+    canvas = client.get("/cases/1/canvas?snapshot=1")
+    assert canvas.status_code == 200
+    assert 'aria-controls="canvas-bottom-panel-methodology"' in canvas.text
+    assert 'aria-labelledby="canvas-bottom-tab-timeline"' in canvas.text
+    assert 'aria-label="Fit graph to view"' in canvas.text
+
+    trace = client.get("/traces/1")
+    assert trace.status_code == 200
+    assert 'aria-controls="trace-explain-content"' in trace.text
+    assert 'role="tabpanel" aria-labelledby="trace-explain-tab-investigator"' in trace.text
+
+
+def test_supervisor_mode_has_visible_role_banner(client: TestClient) -> None:
+    client.post("/auth/prototype", data={"role": "supervisor"})
+    response = client.get("/docket")
+    assert response.status_code == 200
+    assert "Acting as ACP countersignature officer" in response.text
+    assert "Draft notice status" in response.text
+    assert 'data-acp-case-view="all"' in response.text
+    assert 'data-acp-case-view="escalated"' in response.text
+    assert "All IO cases" in response.text
+    assert "Escalated only" in response.text
+    assert 'data-escalated="true"' in response.text
+
+
+def test_io_mode_does_not_show_acp_supervisor_queue(client: TestClient) -> None:
+    response = client.get("/docket")
+    assert response.status_code == 200
+    assert "Draft notice status" not in response.text
+    assert "Escalated only" not in response.text
+
+
+def test_audit_log_page_is_read_only_and_filterable(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rows = [
+        {
+            "ts_ms": 1788258600000,
+            "actor": "ACP-001",
+            "action": "notice.dispatch",
+            "subject": "TRINETRA-FN-2026-0001",
+            "data": {"channels": ["portal"], "deadline_hours": 24},
+            "prev_hash": "0" * 64,
+            "row_hash": "1" * 64,
+        },
+        {
+            "ts_ms": 1788258700000,
+            "actor": "IO-001",
+            "action": "session.signout",
+            "subject": "session:2",
+            "data": {"reason": "officer_signout"},
+            "prev_hash": "1" * 64,
+            "row_hash": "2" * 64,
+        },
+    ]
+
+    def append_forbidden(*_args, **_kwargs):
+        raise AssertionError("audit log viewing must not append a row")
+
+    monkeypatch.setattr(main_module, "append_audit_event", append_forbidden)
+    monkeypatch.setattr(main_module, "read_audit_events", lambda **_kwargs: rows)
+    monkeypatch.setattr(main_module, "verify_audit_chain", lambda: True)
+
+    response = client.get("/audit-log")
+    assert response.status_code == 200
+    assert "Audit log" in response.text
+    assert "Viewing this page does not append a new audit row." in response.text
+    assert "Verified" in response.text
+    assert "notice.dispatch" in response.text
+    assert "session.signout" in response.text
+    assert "var/audit.jsonl" in response.text
+
+    filtered = client.get(
+        "/audit-log",
+        params={"subject": "FN-2026", "action": "notice.dispatch", "actor": "ACP"},
+    )
+    assert filtered.status_code == 200
+    assert "notice.dispatch" in filtered.text
+    assert "TRINETRA-FN-2026-0001" in filtered.text
+    assert "session:2" not in filtered.text
 
 
 def test_risk_screen_presents_record_band_not_calibrated_score(client: TestClient) -> None:

@@ -73,8 +73,8 @@
     }
   });
 
-  root.querySelector('[data-print]').addEventListener('click', () => window.print());
-  root.querySelector('[data-download]').addEventListener('click', () => {
+  root.querySelector('[data-print]')?.addEventListener('click', () => window.print());
+  root.querySelector('[data-download]')?.addEventListener('click', () => {
     live.textContent = signed ? 'Signed PDF prepared for download' : 'Draft PDF prepared for download';
   });
   syncChannels();

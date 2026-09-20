@@ -80,6 +80,7 @@ def omega_graph_payload(
     ]
 
     nodes_by_address: dict[str, dict[str, Any]] = {_address_key(root["address"]): root}
+    nodes_by_hop: dict[int, dict[str, Any]] = {0: root}
     current = root
     previous_address = str(root_address)
     for index, hop in enumerate(hops):
@@ -103,6 +104,7 @@ def omega_graph_payload(
                 }
             )
             nodes_by_address[_address_key(destination)] = current
+            nodes_by_hop[int(hop.get("hop", index))] = current
             continue
         child = _node(
             destination,
@@ -144,6 +146,7 @@ def omega_graph_payload(
         current = child
         previous_address = destination
         nodes_by_address[_address_key(destination)] = child
+        nodes_by_hop[int(hop.get("hop", index + 1))] = child
 
     for index, branch in enumerate(parked):
         destination = str(branch.get("address") or branch.get("destination") or branch.get("destination_address") or "")
@@ -151,6 +154,11 @@ def omega_graph_payload(
             continue
         source = branch.get("source_address")
         parent = nodes_by_address.get(_address_key(str(source))) if source else None
+        if parent is None and branch.get("from_hop") is not None:
+            try:
+                parent = nodes_by_hop.get(int(branch["from_hop"]))
+            except (TypeError, ValueError):
+                parent = None
         if parent is None:
             parent = current if current is not root else root
         confirmed_amount, attributed_amount = _transfer_amounts(branch)

@@ -1,7 +1,7 @@
 body.finding-page { margin:0; overflow:hidden; background:#f5f7fa; color:#111a2b; }
 .finding-page .finding-app { width:100vw; height:100vh; display:grid; grid-template-rows:62px 38px minmax(0,1fr) 42px; overflow:hidden; font-family:"Noto Sans",sans-serif; line-height:normal; }
 .finding-page .finding-topbar { display:flex; align-items:stretch; border-bottom:1px solid #e3e8ef; background:#f5f7fa; }
-.finding-page .finding-top-brand { width:240px; flex:none; display:flex; align-items:center; padding:0 18px; border-right:1px solid #e3e8ef; font-size:16px; font-weight:600; letter-spacing:.01em; }
+.finding-page .finding-top-brand { width:196px; flex:none; display:flex; align-items:center; padding:0 18px; border-right:1px solid #e3e8ef; font-size:16px; font-weight:600; letter-spacing:.01em; }
 .finding-page .finding-top-main { min-width:0; flex:1; display:flex; align-items:center; overflow:hidden; }
 .finding-page .finding-top-fact { height:100%; min-width:0; display:flex; flex-direction:column; justify-content:center; gap:3px; padding:0 20px; border-right:1px solid #e3e8ef; }
 .finding-page .finding-top-fact span { color:#5c6880; font-size:13px; white-space:nowrap; }

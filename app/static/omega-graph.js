@@ -3,12 +3,6 @@
 
   const NS = "http://www.w3.org/2000/svg";
   const shells = [...document.querySelectorAll("[data-omega-graph]")];
-  document.querySelectorAll("[data-strategy-select]").forEach((select) => {
-    select.addEventListener("change", () => {
-      const label = select.selectedOptions[0]?.textContent || select.value;
-      select.setAttribute("aria-label", `View trace strategy: ${label}`);
-    });
-  });
   if (!shells.length) return;
 
   shells.forEach((shell, shellIndex) => initGraph(shell, shellIndex));
@@ -18,6 +12,15 @@
     const viewport = shell.querySelector("[data-omega-viewport]");
     const svg = shell.querySelector("[data-omega-svg]");
     const details = shell.querySelector("[data-omega-details]");
+    const workspace = shell.closest("[data-canvas-workspace]") || document;
+    const strategySelect = workspace.querySelector("[data-strategy-select]");
+    const strategyDelta = workspace.querySelector("[data-strategy-delta]");
+    const strategyExplanation = workspace.querySelector("[data-strategy-explanation]");
+    const strategyLegend = shell.querySelector("[data-strategy-legend]");
+    const strategyFinding = shell.querySelector("[data-strategy-finding] p");
+    const strategyChip = shell.querySelector("[data-strategy-chip]");
+    const compareButton = shell.querySelector("[data-omega-compare]");
+    const ghostLegend = shell.querySelector("[data-ghost-legend]");
     if (!dataNode || !viewport || !svg || !details) return;
 
     let payload = {};
@@ -37,12 +40,23 @@
       selectedEdge: null,
       showValues: true,
       showParked: true,
+      analysis: null,
+      previousAnalysis: null,
+      comparePrevious: false,
     };
     const markerId = `omega-arrow-${shellIndex}`;
     const graph = buildGraph(payload, asset);
     layoutGraph(graph);
     renderGraph();
     requestAnimationFrame(fitGraph);
+    if (strategySelect && shell.dataset.strategyEndpoint) {
+      loadStrategy(strategySelect.value, null);
+      strategySelect.addEventListener("change", async () => {
+        const label = strategySelect.selectedOptions[0]?.textContent || strategySelect.value;
+        strategySelect.setAttribute("aria-label", `View trace strategy: ${label}`);
+        await loadStrategy(strategySelect.value, state.analysis?.strategy || null);
+      });
+    }
 
     shell.querySelectorAll("[data-omega-zoom]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -68,6 +82,25 @@
         shell.classList.toggle("omega-hide-values", !state.showValues);
         shell.classList.toggle("omega-hide-parked", !state.showParked);
       });
+    });
+
+    shell.querySelector("[data-omega-relayout]")?.addEventListener("click", () => {
+      layoutGraph(graph);
+      renderGraph(true);
+    });
+
+    compareButton?.addEventListener("click", () => {
+      if (!state.previousAnalysis) return;
+      state.comparePrevious = !state.comparePrevious;
+      compareButton.setAttribute("aria-pressed", String(state.comparePrevious));
+      compareButton.textContent = state.comparePrevious ? "Hide comparison" : "Compare previous";
+      if (ghostLegend) ghostLegend.hidden = !state.comparePrevious;
+      renderGraph();
+    });
+
+    shell.querySelector("[data-omega-fullscreen]")?.addEventListener("click", toggleFullscreen);
+    shell.querySelectorAll("[data-omega-export]").forEach((button) => {
+      button.addEventListener("click", () => exportGraph(button.dataset.omegaExport || "svg"));
     });
 
     viewport.addEventListener("wheel", (event) => {
@@ -100,6 +133,85 @@
     });
 
     window.addEventListener("resize", fitGraph);
+    document.addEventListener("fullscreenchange", () => {
+      const button = shell.querySelector("[data-omega-fullscreen]");
+      if (button) {
+        const active = document.fullscreenElement === shell || shell.classList.contains("omega-maximized");
+        button.textContent = active ? "Exit fullscreen" : "Fullscreen";
+        button.setAttribute("aria-label", active ? "Exit graph fullscreen" : "Enter graph fullscreen");
+      }
+      requestAnimationFrame(applyTransform);
+    });
+    window.addEventListener("keydown", (event) => {
+      if (event.key.toLowerCase() !== "f" || /^(INPUT|SELECT|TEXTAREA)$/.test(event.target?.tagName || "")) return;
+      event.preventDefault();
+      toggleFullscreen();
+    });
+
+    async function loadStrategy(strategy, previousStrategy) {
+      const params = new URLSearchParams({ strategy });
+      if (previousStrategy) params.set("previous_strategy", previousStrategy);
+      strategySelect.disabled = true;
+      try {
+        const response = await fetch(`${shell.dataset.strategyEndpoint}?${params}`, { credentials: "same-origin" });
+        if (!response.ok) throw new Error(`Strategy request failed (${response.status})`);
+        const analysis = await response.json();
+        applyStrategy(analysis);
+        if (window.updateWorkingContext) await window.updateWorkingContext({ strategy });
+      } catch (error) {
+        console.error("Strategy view failed:", error);
+        if (strategyDelta) strategyDelta.textContent = "Strategy projection is unavailable; the sealed graph remains unchanged.";
+      } finally {
+        strategySelect.disabled = false;
+      }
+    }
+
+    function applyStrategy(analysis) {
+      const oldPositions = new Map(graph.nodes.map((node) => [node.address, { x: node.x, y: node.y }]));
+      if (state.analysis && state.analysis.strategy !== analysis.strategy) {
+        state.previousAnalysis = state.analysis;
+        state.comparePrevious = false;
+      }
+      state.analysis = analysis;
+      const edgeStyles = new Map((analysis.edges || []).map((edge) => [edge.key, edge]));
+      const nodeRanks = new Map((analysis.node_ranks || []).map((node) => [node.address, node]));
+      graph.edges.forEach((edge) => {
+        const style = edgeStyles.get(edge.stableKey) || {};
+        edge.width = Number(style.width_px || edgeWidth(edge.amount));
+        edge.primary = Boolean(style.primary);
+        edge.deprioritized = Boolean(style.deprioritized);
+        edge.strategyRank = style.rank ?? null;
+      });
+      graph.nodes.forEach((node) => {
+        const rank = nodeRanks.get(node.address) || {};
+        node.strategyRank = rank.rank ?? 0;
+        node.primaryOrder = rank.primary_order ?? null;
+        node.primary = (analysis.primary_path || []).includes(node.address);
+      });
+      layoutGraph(graph);
+      renderGraph(true, oldPositions);
+      if (compareButton) {
+        compareButton.disabled = !state.previousAnalysis;
+        compareButton.title = state.previousAnalysis
+          ? `Compare with ${state.previousAnalysis.strategy.replaceAll("_", " ")}`
+          : "Select another strategy to compare";
+        compareButton.textContent = "Compare previous";
+      }
+      if (ghostLegend) ghostLegend.hidden = true;
+      if (strategyDelta) strategyDelta.textContent = analysis.delta?.summary || analysis.criterion;
+      if (strategyLegend) strategyLegend.textContent = `${analysis.strategy.replaceAll("_", " ")}: ${analysis.edge_width_mapping}`;
+      if (strategyChip) strategyChip.textContent = analysis.strategy.replaceAll("_", " ");
+      if (strategyExplanation) {
+        const explanation = analysis.explanation || {};
+        strategyExplanation.textContent = `${explanation.criterion || analysis.criterion} Selected ${explanation.selected_hop_count || 0} hop(s), with ${formatBaseUnits(explanation.selected_value_base, asset.decimals)} ${asset.symbol || "asset"} surviving on the primary path. ${explanation.terminal_statement || ""}`;
+      }
+      if (strategyFinding) {
+        const finding = analysis.finding_projection || {};
+        strategyFinding.textContent = finding.status === "recorded_terminal_reached"
+          ? `The selected priority path reaches ${shortAddress(finding.deposit_address)}. The recorded custody finding remains tied to this sealed snapshot.`
+          : `The selected priority path ends at ${shortAddress(finding.deposit_address)}. This analytical projection does not replace the recorded custody finding; a reviewed retrace is required.`;
+      }
+    }
 
     function buildGraph(data, assetData) {
       const nodes = [];
@@ -185,6 +297,7 @@
             branchReasons: item.branch_reasons || [],
             state: String(edgeMeta.frontier_state || edgeMeta.kind || childNode.role || "expanded").replaceAll("_", "-"),
             metadata: edgeMeta,
+            stableKey: `${currentNode.address}>${childNode.address}:${item.output_index ?? index}`,
           });
           if (item.child) walk(item.child, childNode, depth + 1);
         });
@@ -205,6 +318,11 @@
       const padX = 70;
       const padY = 72;
       [...groups.entries()].sort((a, b) => a[0] - b[0]).forEach(([depth, group]) => {
+        group.sort((left, right) => {
+          const leftPrimary = left.primaryOrder === null || left.primaryOrder === undefined ? 9999 : left.primaryOrder;
+          const rightPrimary = right.primaryOrder === null || right.primaryOrder === undefined ? 9999 : right.primaryOrder;
+          return leftPrimary - rightPrimary || (left.strategyRank || 9999) - (right.strategyRank || 9999) || left.address.localeCompare(right.address);
+        });
         const totalHeight = group.length * 108 + Math.max(0, group.length - 1) * rowGap;
         const startY = padY + Math.max(0, 250 - totalHeight / 2);
         group.forEach((node, index) => {
@@ -214,7 +332,7 @@
       });
     }
 
-    function renderGraph() {
+    function renderGraph(animate = false, previousPositions = null) {
       svg.innerHTML = "";
       const defs = createSvg("defs");
       const marker = createSvg("marker", {
@@ -239,23 +357,37 @@
       const group = createSvg("g", { "data-omega-group": "true" });
       svg.appendChild(group);
 
+      if (state.comparePrevious && state.previousAnalysis) {
+        const previousKeys = new Set(state.previousAnalysis.primary_edge_keys || []);
+        graph.edges.filter((edge) => previousKeys.has(edge.stableKey)).forEach((edge) => {
+          const source = graph.nodes.find((node) => node.id === edge.source);
+          const target = graph.nodes.find((node) => node.id === edge.target);
+          if (!source || !target) return;
+          const geometry = edgeGeometry(source, target);
+          group.appendChild(createSvg("path", {
+            d: geometry.path,
+            fill: "none",
+            stroke: "currentColor",
+            "stroke-width": String(Math.max(2, edge.width || 2)),
+            class: "omega-ghost-edge",
+          }));
+        });
+      }
+
       graph.edges.forEach((edge) => {
         const source = graph.nodes.find((node) => node.id === edge.source);
         const target = graph.nodes.find((node) => node.id === edge.target);
         if (!source || !target) return;
-        const sx = source.x + source.width;
-        const sy = source.y + source.height / 2;
-        const ex = target.x;
-        const ey = target.y + target.height / 2;
-        const curve = Math.max(100, (ex - sx) * 0.45);
+        const geometry = edgeGeometry(source, target);
         const path = createSvg("path", {
-          d: `M ${sx} ${sy} C ${sx + curve} ${sy}, ${ex - curve} ${ey}, ${ex} ${ey}`,
+          d: geometry.path,
           fill: "none",
           stroke: "currentColor",
-          "stroke-width": String(edgeWidth(edge.amount)),
+          "stroke-width": String(edge.width || edgeWidth(edge.amount)),
           "marker-end": `url(#${markerId})`,
-          class: `omega-flow-edge edge-${edge.state}`,
+          class: `omega-flow-edge edge-${edge.state}${edge.primary ? " is-primary" : ""}${edge.deprioritized ? " is-deprioritized" : ""}`,
           "data-edge-id": edge.id,
+          "data-edge-key": edge.stableKey,
         });
         path.addEventListener("click", (event) => {
           event.stopPropagation();
@@ -264,10 +396,10 @@
         group.appendChild(path);
 
         const label = createSvg("text", {
-          x: String((sx + ex) / 2),
-          y: String((sy + ey) / 2 - 8),
+          x: String((geometry.sx + geometry.ex) / 2),
+          y: String((geometry.sy + geometry.ey) / 2 - 8),
           "text-anchor": "middle",
-          class: `omega-edge-label edge-${edge.state}`,
+          class: `omega-edge-label edge-${edge.state}${edge.deprioritized ? " is-deprioritized" : ""}`,
           "data-edge-id": edge.id,
         });
         label.textContent = `${formatAmount(edge.amount, edge.decimals)} ${edge.unit}`;
@@ -280,7 +412,7 @@
 
       graph.nodes.forEach((node) => {
         const g = createSvg("g", {
-          class: `omega-graph-node node-${node.role}`,
+          class: `omega-graph-node node-${node.role}${node.primary ? " is-primary" : ""}`,
           transform: `translate(${node.x},${node.y})`,
           tabindex: "0",
           role: "button",
@@ -294,7 +426,7 @@
           class: "omega-node-box",
         }));
         const role = createSvg("text", { x: "14", y: "21", class: "omega-node-role" });
-        role.textContent = node.role === "seed" ? "SEED" : node.role.toUpperCase();
+        role.textContent = `${node.role === "seed" ? "SEED" : node.role.toUpperCase()}${node.strategyRank ? ` · R${node.strategyRank}` : ""}`;
         g.appendChild(role);
         const addr = createSvg("text", { x: "14", y: "46", class: "omega-node-address" });
         addr.textContent = shortAddress(node.address);
@@ -317,9 +449,87 @@
           await copyAddress(node.address);
         });
         group.appendChild(g);
+        if (animate && previousPositions?.has(node.address) && g.animate) {
+          const previous = previousPositions.get(node.address);
+          g.animate(
+            [
+              { transform: `translate(${previous.x}px, ${previous.y}px)` },
+              { transform: `translate(${node.x}px, ${node.y}px)` },
+            ],
+            { duration: 400, easing: "ease-in-out" },
+          );
+        }
       });
       applyTransform();
       updateSelection();
+    }
+
+    function edgeGeometry(source, target) {
+      const sx = source.x + source.width;
+      const sy = source.y + source.height / 2;
+      const ex = target.x;
+      const ey = target.y + target.height / 2;
+      const curve = Math.max(100, (ex - sx) * 0.45);
+      return { sx, sy, ex, ey, path: `M ${sx} ${sy} C ${sx + curve} ${sy}, ${ex - curve} ${ey}, ${ex} ${ey}` };
+    }
+
+    async function toggleFullscreen() {
+      if (document.fullscreenElement === shell) {
+        await document.exitFullscreen();
+        return;
+      }
+      if (shell.classList.contains("omega-maximized")) {
+        shell.classList.remove("omega-maximized");
+        document.body.classList.remove("omega-fullscreen-fallback");
+        return;
+      }
+      try {
+        if (!shell.requestFullscreen) throw new Error("Fullscreen API unavailable");
+        await shell.requestFullscreen();
+      } catch (_error) {
+        shell.classList.add("omega-maximized");
+        document.body.classList.add("omega-fullscreen-fallback");
+      }
+      requestAnimationFrame(applyTransform);
+    }
+
+    async function exportGraph(format) {
+      const clone = svg.cloneNode(true);
+      const scope = shell.querySelector("[data-omega-export-scope]")?.value || "whole_graph";
+      const maxX = graph.nodes.length ? Math.max(...graph.nodes.map((node) => node.x + node.width)) : 1200;
+      const maxY = graph.nodes.length ? Math.max(...graph.nodes.map((node) => node.y + node.height)) : 700;
+      const width = scope === "visible_area" ? Math.max(1, viewport.clientWidth) : Math.max(1, maxX + 40);
+      const height = scope === "visible_area" ? Math.max(1, viewport.clientHeight) : Math.max(1, maxY + 40);
+      const captionHeight = 54;
+      if (scope === "whole_graph") {
+        clone.querySelector("[data-omega-group]")?.setAttribute("transform", "translate(20,20) scale(1)");
+      }
+      clone.setAttribute("xmlns", NS);
+      clone.setAttribute("viewBox", `0 0 ${width} ${height + captionHeight}`);
+      clone.setAttribute("width", String(width));
+      clone.setAttribute("height", String(height + captionHeight));
+      const background = createSvg("rect", { x: "0", y: "0", width: String(width), height: String(height + captionHeight), fill: "#0e1825" });
+      clone.insertBefore(background, clone.firstChild);
+      const captionBand = createSvg("rect", { x: "0", y: String(height), width: String(width), height: String(captionHeight), fill: "#ffffff" });
+      const caption = createSvg("text", { x: "20", y: String(height + 33), fill: "#172033", "font-size": "16", "font-family": "Noto Sans, sans-serif" });
+      const strategy = state.analysis?.strategy || strategySelect?.value || "strategy";
+      const stamp = formatIstForCaption(new Date());
+      caption.textContent = `Case ${shell.dataset.caseId || "-"} · Trace ${shell.dataset.traceId || "-"} · Strategy ${strategy} · Generated ${stamp} · Trinetra`;
+      clone.appendChild(captionBand);
+      clone.appendChild(caption);
+      const source = new XMLSerializer().serializeToString(clone);
+      const svgBlob = new Blob([source], { type: "image/svg+xml;charset=utf-8" });
+      const baseName = `trinetra_graph_${shell.dataset.caseId || "case"}_${shell.dataset.traceId || "trace"}_${strategy}_${fileStamp(new Date())}`;
+      let blob = svgBlob;
+      let extension = "svg";
+      if (format === "png") {
+        blob = await svgToPng(svgBlob, width, height + captionHeight);
+        extension = "png";
+      }
+      const detail = { blob, format: extension, filename: `${baseName}.${extension}`, strategy, scope };
+      shell.dispatchEvent(new CustomEvent("trinetra:graph-export", { detail, bubbles: true }));
+      downloadBlob(blob, detail.filename);
+      window.trinetraLastGraphExport = detail;
     }
 
     function selectNode(id) {
@@ -443,6 +653,73 @@
       minimumFractionDigits: value >= 1 ? 2 : 0,
       maximumFractionDigits,
     });
+  }
+
+  function formatBaseUnits(amountBase, decimals) {
+    const base = Number(amountBase || 0);
+    const divisor = 10 ** decimalsFor(decimals, 6);
+    return formatAmount(base / divisor, decimals);
+  }
+
+  function formatIstForCaption(date) {
+    return new Intl.DateTimeFormat("en-IN", {
+      timeZone: "Asia/Kolkata",
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(date).replace(",", "") + " IST";
+  }
+
+  function fileStamp(date) {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Kolkata",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(date).reduce((acc, part) => ({ ...acc, [part.type]: part.value }), {});
+    return `${parts.year}${parts.month}${parts.day}-${parts.hour}${parts.minute}`;
+  }
+
+  async function svgToPng(svgBlob, width, height) {
+    const url = URL.createObjectURL(svgBlob);
+    try {
+      const image = new Image();
+      image.decoding = "async";
+      const loaded = new Promise((resolve, reject) => {
+        image.onload = resolve;
+        image.onerror = reject;
+      });
+      image.src = url;
+      await loaded;
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(width * 2));
+      canvas.height = Math.max(1, Math.round(height * 2));
+      const context = canvas.getContext("2d");
+      context.scale(2, 2);
+      context.drawImage(image, 0, 0, width, height);
+      return await new Promise((resolve, reject) => {
+        canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("PNG export failed")), "image/png");
+      });
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   function shortAddress(address) {

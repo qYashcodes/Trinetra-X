@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}Notice workflow · TRINETRA{% endblock %}
+{% block body_class %}notice-workflow-page{% endblock %}
+{% block page_styles %}<link rel="stylesheet" href="/static/notice-workflow.css"><link rel="stylesheet" href="/static/notice-workflow-fixes.css">{% endblock %}
+{% block page_scripts %}<script defer src="/static/notice-workflow.js"></script>{% endblock %}
+
+{% block authenticated %}
+<div class="notice-workflow" data-notice-workflow data-stage="{{ draft.stage }}" data-mode="{{ workflow_mode }}">
+  {% set active_page = 'notice' %}
+  {% include "_workspace_nav.html" %}
+  <main class="notice-workflow-shell">
+    {% include "_trace_mode_banner.html" %}
+    <header class="workflow-head">
+      <div>
+        <a href="/notices/{{ notice.id }}">← Published workflow record</a>
+        <h1>Freeze-notice workflow</h1>
+        <p><span class="mono">{{ case.ack_no }}</span> · {{ notice.notice_no }}</p>
+      </div>
+      <div class="workflow-state"><b>{{ draft.stage | labelize }}</b><span>{% if draft.dirty %}Changes require regeneration{% elif version %}Version {{ version.version_no }} sealed{% else %}No notice body generated{% endif %}</span></div>
+    </header>
+
+    {% if user.role in ['io', 'admin'] %}
+    <nav class="stage-rail" aria-label="Notice workflow stages" data-panel-id="notice-authoring" data-roles="io admin">
+      {% for label in ['Parameters','Attachments','Generate draft','Review and attest','Re-verification','Routing'] %}
+      <a href="#stage-{{ loop.index }}" class="{{ 'active' if loop.index0 <= ['parameters','attachments','generated','review','verification','routing'].index(draft.stage) else '' }}"><b>{{ loop.index }}</b><span>{{ label }}</span></a>
+      {% endfor %}
+    </nav>
+
+    <section id="stage-1" class="workflow-card">
+      <div class="card-heading"><div><span>Stage 1</span><h2>Parameters</h2></div><em>Only recorded facts are prefilled</em></div>
+      <form method="post" action="/notices/{{ notice.id }}/workflow/parameters" data-parameter-form>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="field-grid">
+          <label class="span-2">Transaction hashes<textarea name="transaction_hashes" rows="3" required>{% for txid in draft.parameters.transaction_hashes %}{{ txid }}{{ '\n' if not loop.last else '' }}{% endfor %}</textarea><small>Source: case payment evidence</small></label>
+          <label>Amount in base units<input type="number" name="amount_base" min="1" step="1" value="{{ draft.parameters.amount_base if draft.parameters.amount_base is not none else '' }}" required><small>Integer-only; source: reviewed finding</small></label>
+          <label>Response duration (hours)<input type="number" name="duration_hours" min="1" step="1" value="{{ draft.parameters.duration_hours }}" required></label>
+          <label>VASP name<input name="vasp_name" value="{{ draft.parameters.vasp_name }}" required></label>
+          <label>VASP contact<input name="vasp_contact" value="{{ draft.parameters.vasp_contact }}" required></label>
+          <label>Jurisdiction<input name="jurisdiction" value="{{ draft.parameters.jurisdiction }}" required></label>
+          <label>Drafting officer PIS<input name="officer_pis" value="{{ draft.parameters.officer_pis }}" readonly></label>
+          <label>Drafting officer<input name="officer_name" value="{{ draft.parameters.officer_name }}" readonly></label>
+          <label>Rank<input name="officer_rank" value="{{ draft.parameters.officer_rank }}" readonly></label>
+          <label>Supervising ACP PIS<input name="supervisor_pis" value="{{ draft.parameters.supervisor_pis }}" required readonly></label>
+          <label>Supervising ACP<input name="supervisor_name" value="{{ draft.parameters.supervisor_name }}" readonly></label>
+          <label class="span-2">Statutory option<select name="statutory_key" required>{% for key, label in statutory_options.items() %}<option value="{{ key }}"{{ ' selected' if draft.parameters.statutory_key == key else '' }}>{{ label }}</option>{% endfor %}</select><small>All named choices are specimen labels pending legal review. Generic legal-basis wording remains authoritative for this prototype.</small></label>
+          <label class="check span-2"><input type="checkbox" name="annex_enabled"{{ ' checked' if draft.annex_enabled else '' }}> Include versioned methodology annex</label>
+        </div>
+        <button type="submit">Save parameters</button><span class="autosave-state" data-autosave-state aria-live="polite"></span>
+      </form>
+    </section>
+
+    <section id="stage-2" class="workflow-card">
+      <div class="card-heading"><div><span>Stage 2</span><h2>Attachments</h2></div><em>PDF, PNG or JPG · 10 MB each · 10 total</em></div>
+      <div class="attachment-list">
+        {% for item in attachments %}
+        <article><div><b>{{ item.slot | labelize }}</b><span>{{ item.original_name }}</span></div><code>{{ item.sha256[:16] }}…</code>{% if item.simulated %}<strong>SIMULATED SOURCE</strong>{% endif %}<small>{{ item.provenance }}</small></article>
+        {% else %}<div class="empty-state"><b>No attachments yet</b><span>A complaint is required. A missing graph warns but does not block generation.</span></div>{% endfor %}
+      </div>
+      <div class="attachment-actions">
+        <form method="post" enctype="multipart/form-data" action="/notices/{{ notice.id }}/workflow/attachments">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <label>Slot<select name="slot">{% for slot in ['complaint','fir','graph','custody_summary','other','methodology_annex'] %}<option value="{{ slot }}">{{ slot | labelize }}</option>{% endfor %}</select></label>
+          <label>File<input type="file" name="file" accept="application/pdf,image/png,image/jpeg" required></label>
+          <button type="submit">Attach file</button>
+        </form>
+        {% if workflow_mode == 'fixture' %}<form method="post" action="/notices/{{ notice.id }}/workflow/attachments/from-complaint-source">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="slot" value="complaint">
+          <button type="submit" class="secondary">Attach simulated complaint-source PDF</button><small>Clearly watermarked and stored with <code>simulated=true</code>.</small>
+        </form>{% endif %}
+      </div>
+    </section>
+
+    <section id="stage-3" class="workflow-card">
+      <div class="card-heading"><div><span>Stage 3</span><h2>Generate draft</h2></div><em>Explicit action only</em></div>
+      <p>{% if version %}Version {{ version.version_no }} is immutable. Editing parameters, attachments or the annex marks the working draft dirty and clears attestation.{% else %}No notice body exists in this workflow until you generate version 1.{% endif %}</p>
+      <form method="post" action="/notices/{{ notice.id }}/workflow/generate"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">{{ 'Regenerate immutable version' if version else 'Generate immutable version 1' }}</button></form>
+    </section>
+
+    <section id="stage-4" class="workflow-card">
+      <div class="card-heading"><div><span>Stage 4</span><h2>Review and attestation</h2></div><em>{% if version %}SHA-256 {{ version.content_sha256[:16] }}…{% else %}Waiting for generation{% endif %}</em></div>
+      {% if version %}
+      <iframe id="preview" class="notice-preview" data-preview-scroll title="Generated notice version {{ version.version_no }}" srcdoc="{{ version.rendered_html | forceescape }}"></iframe>
+      <form method="post" action="/notices/{{ notice.id }}/workflow/attest" data-attest-form><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="preview_complete" value="false" data-preview-complete><button type="submit" disabled data-attest>Attest reviewed version {{ version.version_no }}</button><small data-preview-help>Scroll to the end of the actual notice preview to unlock attestation.</small></form>
+      {% else %}<div class="empty-state"><b>Preview unavailable</b><span>Complete stages 1–3 first.</span></div>{% endif %}
+    </section>
+
+    <section id="stage-5" class="workflow-card">
+      <div class="card-heading"><div><span>Stage 5</span><h2>Re-verification</h2></div><em>{% if verification.locked_until_ts_ms %}Lock recorded until {{ verification.locked_until_ts_ms | ist }}{% elif verification.verified_ts_ms %}Verified {{ verification.verified_ts_ms | ist }}{% else %}Not verified{% endif %}</em></div>
+      <p>The working draft is already persisted. Cancelling this modal records no attempt.</p>
+      <button type="button" data-open-verification{{ ' disabled' if not draft.attested_version_no else '' }}>Re-verify identity</button>
+    </section>
+
+    <section id="stage-6" class="workflow-card">
+      <div class="card-heading"><div><span>Stage 6</span><h2>Routing</h2></div><em>Version {{ draft.active_version_no or '—' }}</em></div>
+      <form method="post" action="/notices/{{ notice.id }}/workflow/route" class="routing-actions"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button name="route" value="acp"{{ ' disabled' if not verification.verified_ts_ms else '' }}>Route to ACP countersignature</button><button name="route" value="direct" class="secondary"{{ ' disabled' if not verification.verified_ts_ms else '' }}>Continue to direct-dispatch confirmation</button></form>
+      <p class="truth-note">Routing or dispatch state is not acknowledgement, restraint, seizure, or confirmed external delivery.</p>
+      {% if version %}<a href="/notices/{{ notice.id }}/versions/{{ version.version_no }}/pdf">Download immutable A4 PDF</a>{% endif %}
+    </section>
+
+    {% else %}
+    <section class="workflow-card" data-panel-id="countersignature" data-roles="supervisor admin">
+      <div class="card-heading"><div><span>ACP read-only view</span><h2>Sealed notice version</h2></div><em>{{ 'Version ' ~ version.version_no if version else 'No generated version' }}</em></div>
+      <p>Parameters, attachments, generation, attestation, and verification controls are available only to the assigned investigating officer. Use the published workflow record for countersignature or return-for-amendment actions.</p>
+      {% if version %}<iframe class="notice-preview" title="Sealed notice version {{ version.version_no }}" srcdoc="{{ version.rendered_html | forceescape }}"></iframe>{% else %}<div class="empty-state"><b>No sealed version is available</b><span>The assigned IO must generate an immutable version before ACP review.</span></div>{% endif %}
+      <a href="/notices/{{ notice.id }}">Open countersignature record</a>
+    </section>
+    {% endif %}
+
+    {% if versions | length > 1 %}<section class="workflow-card"><div class="card-heading"><div><span>History</span><h2>Immutable versions</h2></div></div>{% for item in versions %}<a href="/api/notices/{{ notice.id }}/versions/{{ item.version_no }}/diff">Version {{ item.version_no }} · {{ item.tag }} · {{ item.change_summary }}</a>{% endfor %}</section>{% endif %}
+  </main>
+
+  {% if user.role in ['io', 'admin'] %}
+  <div class="verify-modal" hidden data-verification-modal>
+    <div role="dialog" aria-modal="true" aria-labelledby="verify-title">
+      <button type="button" class="modal-close" aria-label="Close" data-close-verification>×</button>
+      <h2 id="verify-title">Re-verify before routing</h2>
+      <p>External sign-in remains unavailable unless an approved integration is configured.</p>
+      <form method="post" action="/notices/{{ notice.id }}/workflow/verify"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button name="method" value="cctns">Sign in with CCTNS</button><button name="method" value="sahyog">Sign in with SAHYOG Portal</button></form>
+      <hr><strong>Demonstration shortcuts</strong>
+      <form method="post" action="/notices/{{ notice.id }}/workflow/verify"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button name="method" value="demo_io" class="secondary"{{ ' disabled' if workflow_mode != 'fixture' else '' }}>Demo as IO</button><button name="method" value="demo_acp" class="secondary"{{ ' disabled' if workflow_mode != 'fixture' else '' }}>Demo as ACP</button></form>
+      <small>Demo methods are distinct audit events and are disabled in live mode.</small>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

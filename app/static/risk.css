@@ -15,17 +15,17 @@ body.risk-page .risk-app {
 }
 
 body.risk-page .workspace-nav {
-  width: 220px;
-  flex: 0 0 220px;
+  width: 196px;
+  flex: 0 0 196px;
 }
 
-body.risk-page .workspace-nav-brand { padding: 14px 18px; }
+body.risk-page .workspace-nav-brand { padding: 0 12px; }
 body.risk-page .workspace-nav-brand > span:last-child { height: 34px; justify-content: center; }
-body.risk-page .workspace-nav-brand strong { line-height: 20px; }
-body.risk-page .workspace-nav-brand small { font-size: 11.5px; line-height: 14px; }
-body.risk-page .workspace-nav-officer strong { line-height: 16px; }
-body.risk-page .workspace-nav-officer > span { line-height: 15px; }
-body.risk-page .workspace-nav-officer small { line-height: 17.4px; }
+body.risk-page .workspace-nav-brand strong { line-height: 1.15; }
+body.risk-page .workspace-nav-brand small { font-size: 10.5px; line-height: 1.15; }
+body.risk-page .workspace-nav-officer strong { line-height: 1.25; }
+body.risk-page .workspace-nav-officer > span { line-height: 1.25; }
+body.risk-page .workspace-nav-officer small { line-height: 1.35; }
 
 body.risk-page .risk-workspace {
   min-width: 0;

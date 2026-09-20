@@ -6,6 +6,7 @@ import secrets
 from sqlmodel import Session, select
 
 from app.models import OfficerRole, OfficerSession
+from app.services.officers import upsert_officer_profile
 from app.services.time import now_ms
 from app.settings import settings
 
@@ -51,6 +52,7 @@ def create_officer_session(
     created_ts_ms: int | None = None,
 ) -> tuple[OfficerSession, str]:
     created = now_ms() if created_ts_ms is None else created_ts_ms
+    upsert_officer_profile(session, officer, role)
     raw_token = secrets.token_urlsafe(48)
     row = OfficerSession(
         token_sha256=session_token_sha256(raw_token),

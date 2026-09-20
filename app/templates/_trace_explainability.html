@@ -8,8 +8,8 @@
     </header>
     <div class="trace-explain-toolbar">
       <div class="trace-explain-register" role="tablist" aria-label="Explanation register">
-        <button type="button" role="tab" aria-selected="true" data-explain-register="investigator">Investigator</button>
-        <button type="button" role="tab" aria-selected="false" data-explain-register="technical">Technical</button>
+        <button id="trace-explain-tab-investigator" type="button" role="tab" aria-selected="true" aria-controls="trace-explain-content" data-explain-register="investigator">Investigator</button>
+        <button id="trace-explain-tab-technical" type="button" role="tab" aria-selected="false" aria-controls="trace-explain-content" data-explain-register="technical">Technical</button>
       </div>
       <span data-explain-register-label>Plain-language investigative record</span>
     </div>
@@ -17,7 +17,7 @@
       <nav aria-label="Explanation subjects" data-explain-subjects>
         {% for item in explainability['items'] %}<button type="button" data-explain-subject="{{ item.id }}" aria-current="{{ 'true' if item.id == 'methodology' else 'false' }}"><span>{{ item.title }}</span><small>{{ item.display_amount }}</small></button>{% endfor %}
       </nav>
-      <main data-explain-content>
+      <main id="trace-explain-content" role="tabpanel" aria-labelledby="trace-explain-tab-investigator" data-explain-content>
         {% set fallback = explainability['items'][-1] %}
         {% for section in fallback.registers.investigator %}<section><h3>{{ section.title }}</h3><p>{{ section.body }}</p></section>{% endfor %}
       </main>

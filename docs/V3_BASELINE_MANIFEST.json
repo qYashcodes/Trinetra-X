@@ -1,0 +1,21 @@
+{
+  "schema": "trinetra.v3-baseline/1",
+  "recorded_date": "2026-09-20",
+  "test_baseline": {
+    "passed": 160,
+    "temp_directory_policy": "workspace-local tmp/pytest-*"
+  },
+  "protected_hashes": {
+    "docs/demo_case.json": "ec0f1e63612dbc53595ab9867d66f9f581e2cc001e983c2c73ca2c2643776d06",
+    "engine/data/bridge_registry.json": "5dea356b9a34aa6bc3f543418fc14c83c7f046667fda842a9e88611eee95b545",
+    "engine/data/vasp_registry.json": "636203817847a76e27f32784e64bf120297816fbc8bac06a15863d0b11eaa92d",
+    "canonical_fixture_snapshot": "5ffa67c393b4b27ce0d1dea47e1430a25ef92722c9ba9eb429d5418f92be9c99"
+  },
+  "protected_contracts": [
+    "fixture-forced intake",
+    "canonical fixture wallet roles and explanatory copy",
+    "integer attribution and deterministic residual carry",
+    "explicit zero values and UTC millisecond timestamps",
+    "provider errors as non-custody terminals"
+  ]
+}

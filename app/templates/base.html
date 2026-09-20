@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en"{% if user %} data-active-role="{{ user.role }}"{% endif %}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,11 +7,13 @@
   <link rel="stylesheet" href="/static/fonts/noto.css">
   <link rel="stylesheet" href="/static/app.css">
   {% block page_styles %}{% endblock %}
+  <script defer src="/static/role-guard.js"></script>
   <script defer src="/static/vendor/alpine.min.js"></script>
   <script defer src="/static/app.js"></script>
   {% block page_scripts %}{% endblock %}
 </head>
-<body class="{% block body_class %}{% endblock %} {{ 'authenticated-session' if user else 'public-session' }}">
+<body class="{% block body_class %}{% endblock %} {{ 'authenticated-session' if user else 'public-session' }}"{% if user %} data-csrf-token="{{ csrf_token|default('') }}" data-work-context='{{ working_context|default({}) | tojson }}' data-navigation-routes='{{ navigation_routes|default({}) | tojson }}' data-role-view-registry='{{ role_view_registry|default({}) | tojson }}'{% endif %}>
+<a class="skip-link" href="#main-content">Skip to main content</a>
 {% if user %}
 {% block authenticated %}
 {% set path = request.url.path %}
@@ -20,6 +22,7 @@
   {% block masthead %}
   <header class="app-masthead">
     <div class="tri-strip" aria-hidden="true"><span></span><span></span><span></span></div>
+    <button class="nav-drawer-toggle" type="button" aria-expanded="false" aria-controls="primary-nav-rail" data-nav-drawer-toggle><span aria-hidden="true">☰</span><span class="sr-only">Open navigation</span></button>
     <div class="masthead-brand">
       <div class="outline-monogram">त्रि</div>
       <div>
@@ -34,7 +37,7 @@
   </header>
   {% endblock %}
 
-  <aside class="nav-rail">
+  <aside class="nav-rail" id="primary-nav-rail" data-nav-drawer>
     <div class="nav-head">
       <div class="outline-monogram compact">त्रि</div>
       <div>
@@ -43,20 +46,22 @@
       </div>
     </div>
     <nav aria-label="Primary">
-      <div class="nav-group">Cases</div>
-      <a class="nav-item {{ 'active' if path == '/cases/new' else '' }}" href="/cases/new"><span>New case</span><b>4</b></a>
+      <div class="nav-group nav-group-cases">Cases</div>
+      <a class="nav-item {{ 'active' if path == '/cases/new' else '' }}" href="/cases/new" data-view-id="case-intake"><span>New case</span></a>
       <a class="nav-item {{ 'active' if path == '/cases/live/new' else '' }}" href="/cases/live/new"><span>Live trace</span></a>
-      <a class="nav-item {{ 'active' if path == '/docket' else '' }}" href="/docket"><span>Case docket</span><b>37</b></a>
-      <div class="nav-group">Investigations</div>
-      <a class="nav-item {{ 'active' if path.startswith('/traces') else '' }}" href="/traces"><span>Active traces</span><b>2</b></a>
-      <a class="nav-item {{ 'active' if path.startswith('/cases/') and 'canvas' in path else '' }}" href="{{ '/cases/' ~ nav_case.id ~ '/canvas' if nav_case.id else '/docket' }}"><span>Investigator canvas</span></a>
-      <div class="nav-group">Outputs</div>
+      <a class="nav-item {{ 'active' if path == '/docket' else '' }}" href="/docket" data-view-id="docket"><span>Case docket</span><b data-nav-count="case_docket">0</b></a>
+      <div class="nav-group nav-group-investigations">Investigations</div>
+      <a class="nav-item {{ 'active' if path.startswith('/traces') else '' }}" href="/traces" data-view-id="trace"><span>Active traces</span><b data-nav-count="active_traces">0</b></a>
+      <a class="nav-item {{ 'active' if path.startswith('/cases/') and 'canvas' in path else '' }}" href="{{ '/cases/' ~ nav_case.id ~ '/canvas?snapshot=' ~ nav_case.snapshot_id if nav_case.id and nav_case.snapshot_id else ('/cases/' ~ nav_case.id ~ '/canvas' if nav_case.id else '/docket') }}"><span>Investigator canvas</span></a>
+      <div class="nav-group nav-group-outputs">Outputs</div>
       <a class="nav-item {{ 'active' if path.startswith('/findings') else '' }}" href="{{ '/findings/' ~ nav_case.finding_id if nav_case.finding_id else '/notices' }}"><span>Custody findings</span></a>
-      <a class="nav-item {{ 'active' if path.startswith('/notices') else '' }}" href="/notices"><span>Freeze notices</span><b>11</b></a>
+      <a class="nav-item {{ 'active' if path.startswith('/notices') else '' }}" href="/notices" data-view-id="notice"><span>Freeze notices</span><b data-nav-count="freeze_notices">0</b></a>
       <a class="nav-item {{ 'active' if path.startswith('/dispatch-tracker') else '' }}" href="/dispatch-tracker"><span>Dispatch tracker</span></a>
-      <div class="nav-group">Tools</div>
+      <div class="nav-group nav-group-tools">Tools</div>
       <a class="nav-item {{ 'active' if path.startswith('/risk-check') else '' }}" href="/risk-check"><span>Risk check</span></a>
+      <div class="nav-group nav-group-devtools">Developer tools</div>
       <a class="nav-item {{ 'active' if path.startswith('/integrations') else '' }}" href="/integrations"><span>Integration status</span></a>
+      <a class="nav-item {{ 'active' if path.startswith('/audit-log') else '' }}" href="/audit-log"><span>Audit log</span></a>
       <a class="nav-item {{ 'active' if path.startswith('/sessions') else '' }}" href="/sessions"><span>Active sessions</span></a>
     </nav>
     <div class="nav-footer">
@@ -66,7 +71,7 @@
     </div>
   </aside>
 
-  <main class="main-shell">
+  <main class="main-shell" id="main-content" tabindex="-1">
     {% block breadcrumb %}<div class="breadcrumb"><span>Home</span><b>/</b><strong>Workspace</strong></div>{% endblock %}
     <section class="content-shell">
       {% block content %}{% endblock %}

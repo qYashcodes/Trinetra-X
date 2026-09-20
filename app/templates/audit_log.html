@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Audit log · TRINETRA{% endblock %}
+{% block breadcrumb %}<div class="breadcrumb"><span>Tools</span><b>/</b><strong>Audit log</strong></div>{% endblock %}
+{% block content %}
+<section class="audit-screen">
+  <header class="page-head audit-head">
+    <div>
+      <span class="eyebrow">Provenance and accountability</span>
+      <h1>Audit log</h1>
+      <p>Newest-first view of locally recorded workflow events. Viewing this page does not append a new audit row.</p>
+    </div>
+  </header>
+
+  <section class="audit-summary" aria-label="Audit integrity summary">
+    <div>
+      <span>Hash chain</span>
+      <strong class="{{ 'verified' if audit_chain_verified else 'broken' }}">{{ 'Verified' if audit_chain_verified else 'Needs review' }}</strong>
+    </div>
+    <div>
+      <span>Rows shown</span>
+      <strong>{{ audit_rows | length }}</strong>
+    </div>
+    <div>
+      <span>Matching rows</span>
+      <strong>{{ audit_total_matches }}</strong>
+    </div>
+    <div>
+      <span>Storage</span>
+      <strong class="mono">var/audit.jsonl</strong>
+    </div>
+  </section>
+
+  <form class="audit-filters" method="get" action="/audit-log" aria-label="Audit log filters">
+    <label>
+      <span>Subject contains</span>
+      <input name="subject" value="{{ audit_filters.subject }}" placeholder="Case, notice or address">
+    </label>
+    <label>
+      <span>Action</span>
+      <select name="action">
+        <option value="">All actions</option>
+        {% for action in audit_actions %}
+        <option value="{{ action }}" {{ 'selected' if action == audit_filters.action else '' }}>{{ action }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      <span>Actor contains</span>
+      <input name="actor" value="{{ audit_filters.actor }}" placeholder="Officer service ID">
+    </label>
+    <div class="audit-filter-actions">
+      <button type="submit">Apply filters</button>
+      <a class="ghost-button button" href="/audit-log">Clear</a>
+    </div>
+  </form>
+
+  <section class="audit-panel" aria-labelledby="audit-table-title">
+    <div class="audit-panel-head">
+      <div>
+        <h2 id="audit-table-title">Recorded workflow events</h2>
+        <p>Rows are retained append-only by the audit service and are displayed here for local review.</p>
+      </div>
+      {% if audit_total_matches > audit_limit %}
+      <span>Showing newest {{ audit_limit }} of {{ audit_total_matches }}</span>
+      {% endif %}
+    </div>
+    <div class="audit-table-wrap">
+      <table class="audit-table">
+        <thead>
+          <tr>
+            <th>Recorded</th>
+            <th>Actor</th>
+            <th>Action</th>
+            <th>Subject</th>
+            <th>Row hash</th>
+            <th>Details</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in audit_rows %}
+          <tr>
+            <td class="mono">{% if row.ts_ms is not none %}{{ row.ts_ms | ist }}{% else %}Not recorded{% endif %}</td>
+            <td class="mono">{{ row.actor }}</td>
+            <td><span class="chip low">{{ row.action }}</span></td>
+            <td class="mono">{{ row.subject }}</td>
+            <td class="mono">{{ row.row_hash | short(10, 8) }}</td>
+            <td>
+              <details class="audit-details">
+                <summary>Inspect</summary>
+                <dl>
+                  <div><dt>Previous hash</dt><dd class="mono">{{ row.prev_hash | short(10, 8) }}</dd></div>
+                  <div><dt>Row data</dt><dd><pre>{{ row.data_json }}</pre></dd></div>
+                </dl>
+              </details>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="audit-empty">No audit rows match the current filters.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</section>
+{% endblock %}

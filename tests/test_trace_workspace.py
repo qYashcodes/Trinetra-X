@@ -19,7 +19,8 @@ def test_active_trace_workspace_matches_reference_contract() -> None:
         assert 'data-trace-replay' in trace.text
         assert '/static/trace.css' in trace.text
         assert '/static/trace.js' in trace.text
-        assert 'Tracing — hop 1 of 5' in trace.text
+        assert 'Preparing trace' in trace.text
+        assert 'hop 1 of 5' not in trace.text
         assert 'Traversal closed at hop 4' not in trace.text
         assert trace.text.count('data-trace-row=') == 5
         assert 'Unattributed cluster K-88' in trace.text

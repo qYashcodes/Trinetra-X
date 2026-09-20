@@ -30,6 +30,15 @@
   data-terminal-note="{{ terminal.note | default('Trace closed without a custody finding.') }}"
   data-terminal-amount="{{ (terminal.amount_credited_base | default(0)) | amount }}"
   data-custodian-name="{{ terminal.custodian_key if has_finding and terminal.custodian_key else '' }}"
+  data-event-count="{{ events | length }}"
+  data-final-addresses="{{ stats.get('addresses_visited', trace_hops | length) }}"
+  data-final-transfers="{{ stats.get('transfers_read', 0) }}"
+  data-final-branches="{{ stats.get('branches_parked', snapshot_result.get('parked', []) | length) }}"
+  data-final-retained="{{ stats.get('retained_share_bp', 0) | pctbp }}"
+  data-started-ts="{{ snapshot.started_ts_ms }}"
+  data-closed-ts="{{ snapshot.closed_ts_ms if snapshot.closed_ts_ms is not none else '' }}"
+  data-stream-url="/api/traces/{{ snapshot.id }}/stream"
+  data-status-url="/api/traces/{{ snapshot.id }}/status"
 >
   <header class="trace-topbar">
     <div class="trace-top-brand">Trinetra</div>
@@ -42,7 +51,7 @@
         <span>Amount traced</span>
         <b class="mono">{{ case.amount_reported_base | amount }}</b>
       </div>
-      <div class="trace-run-state" data-run-state><i></i><span>Tracing — hop 1 of 5</span></div>
+      <div class="trace-run-state" data-run-state><i></i><span>Preparing trace</span></div>
       <div class="trace-top-spacer"></div>
       <button class="trace-top-button" type="button" data-trace-pause>Pause</button>
       <button class="trace-top-button" type="button" data-trace-restart>Restart</button>
@@ -101,7 +110,7 @@
               <path d="M23 36c4.4-6 8.6-8.3 13-8.3S44.7 30 49 36c-4.3 6-8.7 8.3-13 8.3S27.4 42 23 36z" fill="#fff" stroke="#12325e" stroke-width="1.5"/>
               <circle cx="36" cy="36" r="6.2" fill="#12325e"/><circle cx="36" cy="36" r="2.3" fill="#fff"/>
             </svg>
-            <div><strong data-work-heading>Tracing — hop 1 of 5</strong><span>Nodes appear on the canvas as each hop resolves.</span></div>
+            <div><strong data-work-heading>Preparing trace</strong><span>Nodes appear on the canvas as each hop resolves.</span></div>
           </div>
         </section>
 
@@ -176,11 +185,12 @@
   </footer>
 
   <dialog class="trace-restart-dialog" data-restart-dialog aria-labelledby="restart-title">
-    <form method="dialog">
+    <form method="post" action="/traces/{{ snapshot.id }}/retrace">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <span class="trace-dialog-mark" aria-hidden="true">↻</span>
       <h2 id="restart-title">Restart this trace?</h2>
       <p>The current evidence stays recorded. The replay will return to the seed address and resolve each hop again.</p>
-      <div><button value="cancel" class="secondary" type="submit">Keep current trace</button><button value="restart" class="primary" type="submit" data-restart-confirm>Restart trace</button></div>
+      <div><button value="cancel" class="secondary" type="button" data-restart-cancel>Keep current trace</button><button value="restart" class="primary" type="submit" data-restart-confirm>Re-run as new snapshot</button></div>
     </form>
   </dialog>
   {% include "_trace_explainability.html" %}

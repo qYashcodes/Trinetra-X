@@ -27,6 +27,7 @@ from app.models import (
     FrontierItem,
     Notice,
     NoticeTrackerEvent,
+    OfficerRole,
     SourceCoverage,
     TraceEvent,
     TraceSnapshot,
@@ -40,6 +41,7 @@ from app.services.evidence_store import (
 )
 from app.services.explainability import trace_explainability
 from app.services.hash import sha256_json
+from app.services.officers import ensure_case_assignment, upsert_officer_profile
 from app.services.time import now_ms
 from app.settings import settings
 
@@ -77,6 +79,7 @@ def seed_demo(session: Session) -> Case:
 def case_from_complaint(session: Session, record: dict) -> Case:
     existing = session.exec(select(Case).where(Case.ack_no == record["ack_no"])).first()
     if existing:
+        _ensure_fixture_assignment(session, existing)
         return existing
     ts = now_ms()
     asset = record["asset"]
@@ -101,7 +104,25 @@ def case_from_complaint(session: Session, record: dict) -> Case:
     session.add(case)
     session.commit()
     session.refresh(case)
+    _ensure_fixture_assignment(session, case)
     return case
+
+
+def _ensure_fixture_assignment(session: Session, case: Case) -> None:
+    data = demo_case()
+    if case.ack_no != str(data["case"]["ack_no"]):
+        return
+    io = data["officers"]["io"]
+    acp = data["officers"]["supervisor"]
+    upsert_officer_profile(session, io, OfficerRole.io)
+    upsert_officer_profile(session, acp, OfficerRole.supervisor)
+    ensure_case_assignment(
+        session,
+        case,
+        assigned_io_pis=str(io["pis"]),
+        supervising_acp_pis=str(acp["pis"]),
+    )
+    session.commit()
 
 
 def get_or_create_trace(
@@ -166,10 +187,15 @@ def get_or_create_trace(
     )
     terminal = result["terminal"]
     finding = None
+    failed_retrace = (
+        force_new
+        and stale_existing is not None
+        and snapshot.status in {"failed", "unsupported"}
+    )
     try:
         session.add(snapshot)
         session.flush()
-        if stale_existing:
+        if stale_existing and not failed_retrace:
             stale_existing.superseded_by_id = snapshot.id
             session.add(stale_existing)
 
@@ -203,9 +229,10 @@ def get_or_create_trace(
             )
             session.add(finding)
 
-        case.stage = CaseStage(case_stage_for_terminal(terminal))
-        case.updated_ts_ms = now_ms()
-        session.add(case)
+        if not failed_retrace:
+            case.stage = CaseStage(case_stage_for_terminal(terminal))
+            case.updated_ts_ms = now_ms()
+            session.add(case)
         session.commit()
     except IntegrityError:
         session.rollback()

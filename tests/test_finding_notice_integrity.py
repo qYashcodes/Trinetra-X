@@ -282,6 +282,7 @@ def test_notice_requires_distinct_persisted_countersignature_before_dispatch(
         assert draft.status_code == 200
         assert 'data-notice-status="draft"' in draft.text
         assert 'data-countersigned="false"' in draft.text
+        assert "Requesting restraint or preservation of" in draft.text
         assert "Not yet requested" in draft.text
         assert "Request countersignature" in draft.text
         assert "Template BNSS-106 v3.2 · specimen · legal review pending" in draft.text
@@ -444,6 +445,8 @@ def test_notice_requires_distinct_persisted_countersignature_before_dispatch(
         persisted = investigator.get(f"/notices/{notice_id}")
         assert 'data-notice-status="dispatched"' in persisted.text
         assert "Dispatched, awaiting acknowledgement" in persisted.text
+        assert "Dispatch audit" in persisted.text
+        assert "Recorded by <b class=\"mono\">74821</b>" in persisted.text
         assert "Response required: ASAP, and in any case within 24 hours of receipt of this notice." in persisted.text
         assert "seventy-two hours" not in persisted.text
         assert "7 days" not in persisted.text

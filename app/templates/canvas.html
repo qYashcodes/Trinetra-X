@@ -54,9 +54,16 @@
           </select>
         </label>
         <button class="strategy-explain" type="button" data-explain-target="methodology">Explain trace</button>
+        {% if user.role in ['io', 'admin'] and snapshot is defined and snapshot %}
+        <form method="post" action="/traces/{{ snapshot.id }}/retrace" data-retrace-form>
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="strategy-explain" type="submit">Re-run trace</button>
+        </form>
+        {% endif %}
         <span class="strategy-fact"><small>Value threshold</small><b>≥ 2%</b></span>
         <span class="strategy-fact"><small>Stop at</small><b>VASP / Mixer / Bridge</b></span>
       </section>
+      <p class="canvas-strategy-delta" data-strategy-delta aria-live="polite">Loading active strategy criterion...</p>
 
       <div class="canvas-main-row">
         <div class="canvas-left-column">
@@ -64,11 +71,11 @@
 
           <section class="canvas-bottom-card">
             <div class="canvas-bottom-tabs" role="tablist" aria-label="Trace information">
-              <button type="button" role="tab" aria-selected="true">Trace timeline</button>
-              <button type="button" role="tab" aria-selected="false" data-explain-target="methodology">Methodology</button>
-              <button type="button" role="tab" aria-selected="false" data-explain-target="terminal">Terminal</button>
+              <button id="canvas-bottom-tab-timeline" type="button" role="tab" aria-selected="true" aria-controls="canvas-bottom-panel-timeline" data-bottom-tab="timeline">Trace timeline</button>
+              <button id="canvas-bottom-tab-methodology" type="button" role="tab" aria-selected="false" aria-controls="canvas-bottom-panel-methodology" data-bottom-tab="methodology" data-explain-target="methodology">Methodology</button>
+              <button id="canvas-bottom-tab-terminal" type="button" role="tab" aria-selected="false" aria-controls="canvas-bottom-panel-terminal" data-bottom-tab="terminal" data-explain-target="terminal">Trace endpoint</button>
             </div>
-            <div class="canvas-bottom-panel timeline-panel">
+            <div id="canvas-bottom-panel-timeline" class="canvas-bottom-panel timeline-panel" role="tabpanel" aria-labelledby="canvas-bottom-tab-timeline" data-bottom-panel="timeline">
               {% set timeline_labels = ['Victim payment', 'Pass-through', 'Peel chain', 'Consolidation', 'Exchange deposit'] %}
               {% for item in trace_hops %}
                 {% if not loop.first %}<i class="timeline-arrow {{ 'warn' if loop.index0 == 3 else '' }}" aria-hidden="true">▶</i>{% endif %}
@@ -80,6 +87,24 @@
               {% endfor %}
               <i class="timeline-arrow" aria-hidden="true">▶</i>
               <button class="timeline-item vasp" type="button" data-explain-target="terminal"><span><b>VASP</b><strong>Terminal account object</strong></span><em>Coinsphere</em><small><i>{{ (demo.hot_wallet.ts_ms | ist)[11:16] }}</i><b class="positive">Evidence band only</b></small></button>
+            </div>
+            <div id="canvas-bottom-panel-methodology" class="canvas-bottom-panel canvas-info-panel" role="tabpanel" aria-labelledby="canvas-bottom-tab-methodology" data-bottom-panel="methodology" hidden>
+              <h2>Methodology</h2>
+              <p data-strategy-explanation>The canvas follows the sealed trace using integer base-unit attribution, the configured traversal bounds, and explicit parked-branch records. Fixture labels come from controlled demonstration data and are not production-reviewed registry entries.</p>
+              <dl>
+                <div><dt>Strategy</dt><dd class="mono">{{ selected_strategy }}</dd></div>
+                <div><dt>Value floor</dt><dd>2 percent of attributed value</dd></div>
+                <div><dt>Evidence posture</dt><dd>Evidence bands only; no calibrated probability is asserted.</dd></div>
+              </dl>
+            </div>
+            <div id="canvas-bottom-panel-terminal" class="canvas-bottom-panel canvas-info-panel" role="tabpanel" aria-labelledby="canvas-bottom-tab-terminal" data-bottom-panel="terminal" hidden>
+              <h2>Trace endpoint</h2>
+              <p>The sealed fixture trace ends at a deposit-address account object and a separate hot-wallet label. Dispatch or request status remains separate from any confirmed restraint.</p>
+              <dl>
+                <div><dt>Terminal kind</dt><dd class="mono">{{ demo.terminal.kind | replace('_', ' ') | title }}</dd></div>
+                <div><dt>Amount credited</dt><dd class="mono">{{ demo.terminal.amount_credited_base | amount }}</dd></div>
+                <div><dt>Deposit address</dt><dd class="mono">{{ demo.terminal.deposit_address }}</dd></div>
+              </dl>
             </div>
           </section>
         </div>

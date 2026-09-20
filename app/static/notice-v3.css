@@ -1,0 +1,21 @@
+.notice-return-form {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #e3e8ef;
+}
+.notice-return-form label {
+  display: grid;
+  gap: 5px;
+  color: #5c6880;
+  font-size: 12px;
+}
+.notice-return-form textarea {
+  min-height: 70px;
+  resize: vertical;
+  border: 1px solid #bdc8d7;
+  border-radius: 5px;
+  padding: 8px;
+  font: inherit;
+}
