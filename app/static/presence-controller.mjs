@@ -15,6 +15,7 @@ export function createPresenceMonitor({
   createCamera,
   motionCheck = () => false,
   resetMotion = () => {},
+  onCamera = () => {},
   onStatus = () => {},
   onAdvisory = () => {},
   onError = () => {},
@@ -213,27 +214,29 @@ export function createPresenceMonitor({
     const startGeneration = ++generation;
     emitStatus(PRESENCE_STATES.STARTING, "Starting");
     const pending = (async () => {
-      let candidateDetector = detector;
       let candidateCamera = null;
+      let candidateDetector = detector;
       let createdDetector = false;
       try {
+        candidateCamera = await createCamera();
+        if (disposed || !preferenceEnabled || startGeneration !== generation) {
+          stopCameraResource(candidateCamera);
+          return;
+        }
+        camera = candidateCamera;
+        onCamera(camera);
+        watchForCameraFailure(camera);
+
         if (!candidateDetector) {
           candidateDetector = await createDetector();
           createdDetector = true;
         }
         if (disposed || !preferenceEnabled || startGeneration !== generation) {
+          stopCamera();
           if (createdDetector && candidateDetector?.close) await candidateDetector.close();
           return;
         }
         detector = candidateDetector;
-        candidateCamera = await createCamera();
-        if (disposed || !preferenceEnabled || startGeneration !== generation) {
-          stopCameraResource(candidateCamera);
-          if (createdDetector && detector === candidateDetector) await closeDetector();
-          return;
-        }
-        camera = candidateCamera;
-        watchForCameraFailure(camera);
         lastCheckAt = Number.NEGATIVE_INFINITY;
         lastVideoTime = Number.NEGATIVE_INFINITY;
         missingSince = null;

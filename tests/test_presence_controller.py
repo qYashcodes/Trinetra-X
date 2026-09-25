@@ -34,6 +34,8 @@ def test_presence_bootstrap_wires_visibility_shield_and_pagehide_cleanup() -> No
     assert 'window.addEventListener("pagehide"' in source
     assert "void monitor.dispose()" in source
     assert 'createLocalCamera({ videoElement: preview })' in source
+    assert "NotAllowedError" in source
+    assert "NotReadableError" in source
     assert "http://" not in source
     assert "https://" not in source
 

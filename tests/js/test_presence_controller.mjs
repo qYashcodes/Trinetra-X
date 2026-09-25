@@ -27,6 +27,7 @@ function createHarness({
   const cameras = [];
   const statuses = [];
   const advisories = [];
+  const cameraReady = [];
   const errors = [];
   let detectorCreates = 0;
   let cameraCreates = 0;
@@ -96,6 +97,7 @@ function createHarness({
     },
     motionCheck: () => motion,
     onStatus: (value) => statuses.push(value),
+    onCamera: (value) => cameraReady.push(value),
     onAdvisory: (value) => advisories.push(value),
     onError: (value) => errors.push(value),
     now: () => currentTime,
@@ -117,6 +119,7 @@ function createHarness({
     cameras,
     statuses,
     advisories,
+    cameraReady,
     errors,
     counts: {
       get detectorCreates() { return detectorCreates; },
@@ -216,14 +219,28 @@ test("repeated inference failure releases resources and becomes unavailable", as
   assert.equal(harness.shield.calls.length, 0);
 });
 
-test("camera failure closes the detector and remains non-blocking", async () => {
+test("camera failure remains non-blocking without starting the detector", async () => {
   const harness = createHarness({
     cameraFactory: async () => { throw new Error("permission denied"); },
   });
   await harness.monitor.enable();
   assert.equal(harness.monitor.getState(), PRESENCE_STATES.UNAVAILABLE);
-  assert.equal(harness.counts.detectorCloses, 1);
+  assert.equal(harness.counts.detectorCreates, 0);
+  assert.equal(harness.counts.detectorCloses, 0);
   assert.equal(harness.shield.calls.length, 0);
+});
+
+test("camera is ready before face detector startup completes", async () => {
+  let resolveDetector;
+  const detectorReady = new Promise((resolve) => { resolveDetector = resolve; });
+  const harness = createHarness({ detectorFactory: () => detectorReady });
+  const enabling = harness.monitor.enable();
+  await flush();
+  assert.equal(harness.cameraReady.length, 1);
+  assert.equal(harness.cameras[0].track.stops, 0);
+  resolveDetector({ detectForVideo() {}, close() {} });
+  await enabling;
+  assert.equal(harness.monitor.getState(), PRESENCE_STATES.MONITORING);
 });
 
 test("an ended camera track releases resources and becomes unavailable", async () => {
@@ -248,7 +265,8 @@ test("disable during model initialization closes the stale detector", async () =
   resolveDetector({ detectForVideo() {}, close() { closes += 1; } });
   await Promise.all([enabling, disabling]);
   assert.equal(closes, 1);
-  assert.equal(harness.counts.cameraCreates, 0);
+  assert.equal(harness.counts.cameraCreates, 1);
+  assert.equal(harness.cameras[0].track.stops, 1);
   assert.equal(harness.monitor.getState(), PRESENCE_STATES.OFF);
 });
 

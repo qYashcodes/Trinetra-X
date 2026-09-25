@@ -26,10 +26,27 @@ if (controls) {
   let monitor = null;
   let advisory = "";
   let failureDetail = "";
+  let startupStage = "camera";
 
   const updatePreview = (state) => {
     if (!preview) return;
     preview.hidden = state !== PRESENCE_STATES.MONITORING;
+  };
+
+  const describeStartupError = (error) => {
+    const name = String(error?.name || "").trim();
+    const messages = {
+      NotAllowedError: "Camera permission was denied. Allow camera access for this localhost site, then retry.",
+      NotFoundError: "No camera was found. Connect a camera, then retry.",
+      NotReadableError: "The camera is busy or unavailable to the browser. Close other camera apps, then retry.",
+      OverconstrainedError: "The camera does not support the requested video settings. Check the camera, then retry.",
+      SecurityError: "The browser blocked camera access. Use localhost or HTTPS, then retry.",
+    };
+    if (messages[name]) return messages[name];
+    if (startupStage === "face detector") {
+      return "The local face detector could not start. Reload the page and retry; camera frames remain local.";
+    }
+    return `Camera startup failed${name ? ` (${name})` : ""}. Check browser camera permissions, then retry.`;
   };
 
   const waitForShield = async () => {
@@ -69,10 +86,19 @@ if (controls) {
 
     monitor = createPresenceMonitor({
       shield,
-      createDetector: () => createLocalFaceDetector(),
-      createCamera: () => createLocalCamera({ videoElement: preview }),
+      createDetector: async () => {
+        startupStage = "face detector";
+        return createLocalFaceDetector();
+      },
+      createCamera: async () => {
+        startupStage = "camera";
+        return createLocalCamera({ videoElement: preview });
+      },
       motionCheck: (video) => motion.check(video),
       resetMotion: () => motion.reset(),
+      onCamera: () => {
+        if (preview) preview.hidden = false;
+      },
       absenceMs: Number(controls.dataset.presenceAbsenceMs || 15000),
       checkIntervalMs: Number(controls.dataset.presenceCheckIntervalMs || 400),
       resumeGraceMs: Number(controls.dataset.presenceResumeGraceMs || 5000),
@@ -87,7 +113,7 @@ if (controls) {
       },
       onError: (error) => {
         console.warn("TRINETRA workstation presence unavailable.", error);
-        failureDetail = "Camera or local detector unavailable; the existing idle shield remains active.";
+        failureDetail = describeStartupError(error);
         updatePreview(PRESENCE_STATES.UNAVAILABLE);
         updateUi({ state: PRESENCE_STATES.UNAVAILABLE, enabled: monitor.isEnabled() });
       },
