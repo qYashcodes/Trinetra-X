@@ -55,6 +55,24 @@ def configured() -> bool:
     return bool((os.getenv("ETHERSCAN_API_KEY") or "").strip())
 
 
+def _flag_enabled(name: str) -> bool:
+    return (os.getenv(name) or "false").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _missing_trace_gates() -> list[str]:
+    return [
+        name
+        for name, ready in (
+            ("TRINETRA_ENABLE_LIVE_EVM", _flag_enabled("TRINETRA_ENABLE_LIVE_EVM")),
+            ("ETHERSCAN_API_KEY", configured()),
+            ("TRINETRA_LIVE_EVM_SCHEMA_VERIFIED", _flag_enabled("TRINETRA_LIVE_EVM_SCHEMA_VERIFIED")),
+            ("TRINETRA_LIVE_EVM_SMOKE_VERIFIED", _flag_enabled("TRINETRA_LIVE_EVM_SMOKE_VERIFIED")),
+            ("TRINETRA_LIVE_EVM_TRACE_VERIFIED", _flag_enabled("TRINETRA_LIVE_EVM_TRACE_VERIFIED")),
+        )
+        if not ready
+    ]
+
+
 def config_from_env() -> EtherscanConfig:
     raw_keys = (os.getenv("ETHERSCAN_API_KEY") or "").strip()
     if not raw_keys:
@@ -82,12 +100,18 @@ def configured_chains() -> list[ChainRef]:
 
 
 def adapter_status() -> dict[str, object]:
+    missing_gates = _missing_trace_gates()
     return {
         "family": "EVM",
-        "enabled": False,
+        "enabled": not missing_gates,
         "configured_key": configured(),
         "required_gate": "TRINETRA_LIVE_EVM_TRACE_VERIFIED",
-        "reason": "EVM token tracing is explicitly unsupported until adapter evidence gates pass.",
+        "missing_gates": missing_gates,
+        "reason": (
+            "EVM token tracing is explicitly unsupported until adapter evidence gates pass."
+            if missing_gates
+            else None
+        ),
     }
 
 
@@ -105,6 +129,9 @@ def fetch_address_transactions(
     session: Any | None = None,
     config: EtherscanConfig | None = None,
 ) -> list[dict]:
+    status = adapter_status()
+    if not status["enabled"]:
+        raise EvmAdapterUnavailableError(str(status["reason"]))
     cfg = config or config_from_env()
     selected_chain = chain or EVM_CHAINS[0]
     rows: dict[str, dict] = {}
