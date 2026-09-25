@@ -35,15 +35,6 @@ class Settings:
     session_idle_timeout_seconds: int = int(
         os.getenv("TRINETRA_SESSION_IDLE_TIMEOUT_SECONDS", "900")
     )
-    presence_absence_seconds: int = int(
-        os.getenv("TRINETRA_PRESENCE_ABSENCE_SECONDS", "15")
-    )
-    presence_check_interval_ms: int = int(
-        os.getenv("TRINETRA_PRESENCE_CHECK_INTERVAL_MS", "400")
-    )
-    presence_resume_grace_seconds: int = int(
-        os.getenv("TRINETRA_PRESENCE_RESUME_GRACE_SECONDS", "5")
-    )
     data_stale_after_seconds: int = int(
         os.getenv("TRINETRA_DATA_STALE_AFTER_SECONDS", "900")
     )

@@ -76,9 +76,6 @@ def feature_flags() -> dict[str, dict[str, object]]:
     protocol_live_verified = flag_enabled("TRINETRA_PROTOCOL_DECODERS_LIVE_VERIFIED")
     privacy_requested = flag_enabled("TRINETRA_ENABLE_PRIVACY_REVIEW")
     privacy_approved = flag_enabled("TRINETRA_PRIVACY_REVIEW_APPROVED")
-    presence_requested = flag_enabled("TRINETRA_ENABLE_WORKSTATION_PRESENCE")
-    presence_reviewed = flag_enabled("TRINETRA_WORKSTATION_PRESENCE_REVIEWED")
-    presence_ready = presence_requested and presence_reviewed
     narrative_requested = flag_enabled("TRINETRA_ENABLE_NARRATIVE_TRIAGE")
     narrative_taxonomy_reviewed = flag_enabled("TRINETRA_NARRATIVE_TAXONOMY_REVIEWED")
     narrative_privacy_reviewed = flag_enabled("TRINETRA_NARRATIVE_PRIVACY_REVIEWED")
@@ -207,24 +204,6 @@ def feature_flags() -> dict[str, dict[str, object]]:
             "blocked_reason": None
             if privacy_requested and privacy_approved
             else "Privacy-boundary helpers are local-only until review workflow is approved.",
-        },
-        "workstation_presence": {
-            "enabled": presence_ready,
-            "requested": presence_requested,
-            "reviewed": presence_reviewed,
-            "missing_gates": [
-                name
-                for name, ready in (
-                    ("TRINETRA_ENABLE_WORKSTATION_PRESENCE", presence_requested),
-                    ("TRINETRA_WORKSTATION_PRESENCE_REVIEWED", presence_reviewed),
-                )
-                if not ready
-            ],
-            "blocked_reason": None
-            if presence_ready
-            else (
-                "Workstation presence requires explicit enablement and completed privacy review."
-            ),
         },
         "narrative_triage": {
             "enabled": narrative_ready,

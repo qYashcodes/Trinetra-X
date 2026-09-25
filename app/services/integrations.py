@@ -58,19 +58,6 @@ def integration_status() -> dict[str, Any]:
     chain_live_ready = settings.mode == "live" and bool(
         flags["live_tron_provider"]["enabled"]
     )
-    presence_asset_root = ROOT_DIR / "app" / "static" / "vendor" / "mediapipe"
-    presence_assets_ready = all(
-        (presence_asset_root / relative).is_file()
-        for relative in (
-            "vision_bundle.mjs",
-            "blaze_face_short_range.tflite",
-            "wasm/vision_wasm_internal.js",
-            "wasm/vision_wasm_internal.wasm",
-            "wasm/vision_wasm_nosimd_internal.js",
-            "wasm/vision_wasm_nosimd_internal.wasm",
-        )
-    )
-
     groups = [
         {
             "key": "mode",
@@ -239,45 +226,6 @@ def integration_status() -> dict[str, Any]:
                     "label": "Monitoring and backup",
                     "status": "disabled",
                     "detail": "production operations integration not configured",
-                },
-            ],
-        },
-        {
-            "key": "workstation_presence",
-            "name": "Workstation presence",
-            "summary": (
-                "Optional on-device face presence can obscure an unattended workspace; "
-                "it does not identify or authenticate the officer."
-            ),
-            "status": "configured"
-            if flags["workstation_presence"]["enabled"]
-            else "disabled",
-            "items": [
-                {
-                    "label": "TRINETRA_ENABLE_WORKSTATION_PRESENCE",
-                    "status": "configured"
-                    if flags["workstation_presence"]["requested"]
-                    else "disabled",
-                    "detail": str(flags["workstation_presence"]["requested"]).lower(),
-                },
-                {
-                    "label": "TRINETRA_WORKSTATION_PRESENCE_REVIEWED",
-                    "status": "configured"
-                    if flags["workstation_presence"]["reviewed"]
-                    else "approval_required",
-                    "detail": str(flags["workstation_presence"]["reviewed"]).lower(),
-                },
-                {
-                    "label": "Pinned local runtime",
-                    "status": "configured" if presence_assets_ready else "missing",
-                    "detail": "MediaPipe Tasks Vision 1.0.1 and BlazeFace short-range",
-                },
-                {
-                    "label": "Browser security context",
-                    "status": "configured"
-                    if flags["workstation_presence"]["enabled"]
-                    else "disabled",
-                    "detail": "requires HTTPS or localhost plus officer camera permission",
                 },
             ],
         },
