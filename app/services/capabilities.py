@@ -20,8 +20,12 @@ def capability_matrix(flags: dict[str, dict[str, object]] | None = None) -> list
     protocol_decoders_enabled = bool(active_flags["protocol_decoders"]["enabled"])
     privacy_review_enabled = bool(active_flags["privacy_review"]["enabled"])
     live_trace_enabled = bool(active_flags["live_tron_trace"]["enabled"])
+    evm_trace_enabled = bool(active_flags.get("live_evm_trace", {}).get("enabled"))
+    btc_trace_enabled = bool(active_flags.get("live_btc_trace", {}).get("enabled"))
     worker_enabled = bool(active_flags["supervised_frontier_worker"]["enabled"])
     watch_enabled = bool(active_flags.get("wallet_watch", {}).get("enabled"))
+    presence_enabled = bool(active_flags.get("workstation_presence", {}).get("enabled"))
+    narrative_enabled = bool(active_flags.get("narrative_triage", {}).get("enabled"))
     return [
         {
             "key": "session_lifecycle",
@@ -36,10 +40,36 @@ def capability_matrix(flags: dict[str, dict[str, object]] | None = None) -> list
             "detail": "OIDC and WebAuthn remain shells pending approved metadata, credentials and authority configuration.",
         },
         {
+            "key": "workstation_presence",
+            "name": "On-device workstation presence",
+            "state": "enabled" if presence_enabled else "integration-tested",
+            "detail": (
+                "Optional on-device face-presence obscuring is enabled; it is not identity or liveness verification."
+                if presence_enabled
+                else (
+                    "Pinned local face-presence assets and fail-open session integration are "
+                    "tested behind enablement and privacy-review gates."
+                )
+            ),
+        },
+        {
             "key": "fixture_tron_usdt",
             "name": "Fixture TRON USDT trace",
             "state": "fixture-tested",
             "detail": "Canonical offline demo path with projected events, lots, coverage and findings.",
+        },
+        {
+            "key": "complaint_narrative_triage",
+            "name": "Complaint narrative typology triage",
+            "state": "enabled" if narrative_enabled else "integration-tested",
+            "detail": (
+                "English deterministic indicator review is enabled; results remain advisory and scoreless."
+                if narrative_enabled
+                else (
+                    "English text/PDF extraction, scoreless multi-label indicators and append-only "
+                    "officer review are locally tested behind taxonomy and privacy gates."
+                )
+            ),
         },
         {
             "key": "frontier_resume",
@@ -105,14 +135,28 @@ def capability_matrix(flags: dict[str, dict[str, object]] | None = None) -> list
         {
             "key": "evm_token_trace",
             "name": "EVM token trace",
-            "state": "unavailable",
-            "detail": "Detected with typed unavailable adapter status until evidence gates pass.",
+            "state": "enabled" if evm_trace_enabled else "unavailable",
+            "detail": (
+                "EVM tracing is enabled only after provider, schema, smoke and trace gates pass."
+                if evm_trace_enabled
+                else (
+                    "The multi-chain router can identify EVM seeds, but EVM tracing remains "
+                    "unavailable until Etherscan-compatible provider evidence gates pass."
+                )
+            ),
         },
         {
             "key": "bitcoin_outpoint_trace",
             "name": "Bitcoin outpoint trace",
-            "state": "unavailable",
-            "detail": "Detected with typed unavailable adapter status until UTXO gates pass.",
+            "state": "enabled" if btc_trace_enabled else "unavailable",
+            "detail": (
+                "Bitcoin tracing is enabled only after provider, schema, smoke and trace gates pass."
+                if btc_trace_enabled
+                else (
+                    "The multi-chain router can identify Bitcoin seeds, but outpoint tracing remains "
+                    "unavailable until Esplora/UTXO evidence gates pass."
+                )
+            ),
         },
         {
             "key": "custody_provider_import",

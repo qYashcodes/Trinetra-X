@@ -64,10 +64,11 @@
           <small class="mono">deadline_hours: 24</small>
         </section>
         <section class="notice-attachments"><h3>Attached to this notice</h3>
-          <div><span><i></i><a href="#">Trace report (6 pages)</a></span><b class="mono">PDF, 412 KB</b></div>
-          <div><span><i></i><a href="#">Graph exhibit, hops 0 to 4</a></span><b class="mono">PNG, 1.1 MB</b></div>
-          <div><span><i></i><a href="#">Complaint extract</a></span><b class="mono">PDF, 96 KB</b></div>
-          <div><span><i></i><a href="#">Methodology annex</a></span><b class="mono">JSON</b></div>
+          {% for item in workflow_attachments %}
+          <div><span><i></i><a href="/notices/{{ notice.id }}/workflow/attachments/{{ item.id }}" target="_blank" rel="noopener">{{ item.original_name }}</a></span><b class="mono">{{ item.mime_type.split('/')[-1] | upper }}, {{ (item.size_bytes // 1024) or 1 }} KB</b></div>
+          {% else %}
+          <div><span><i></i><a href="/notices/{{ notice.id }}/workflow">No workflow attachments recorded</a></span><b class="mono">Pending</b></div>
+          {% endfor %}
         </section>
         <section class="notice-countersign">
           <h3>Countersignature</h3>

@@ -23,7 +23,7 @@ try:
 except Exception:  # pragma: no cover - import guard for partial installs
     EventSourceResponse = None
 
-from engine.adapters import tron
+from engine.runtime.router import SeedResolutionError, resolve_live_seed
 
 from app.db import engine, get_session, init_db
 from app.docket_fixture import docket_fixture
@@ -42,14 +42,17 @@ from app.models import (
     Case,
     CaseAssignment,
     CaseStage,
+    ComplaintNarrative,
     DispatchRecord,
     Dispatch,
     Finding,
     FrontierItem,
     Notice,
+    NoticeAttachment,
     NoticeDraft,
     NoticeVersion,
     NoticeTrackerEvent,
+    NarrativeAssessment,
     OfficerRole,
     OfficerProfile,
     OfficerSession,
@@ -107,28 +110,44 @@ from app.services.integrations import integration_status
 from app.services.feature_flags import feature_flags
 from app.services.live_trace import (
     LiveTraceInputError,
-    parse_amount_base,
-    parse_ist_timestamp,
     parse_trace_params,
     snapshot_runtime_status,
 )
+from app.services.ml_model import offline_lab_replay, prototype_model_status
 from app.services.money import format_amount, format_millions
 from app.services.notices import notice_view_model, sahyog_manifest
 from app.services.notice_workflow import (
+    ATTACHMENT_SLOTS,
+    MAX_ATTACHMENT_BYTES,
+    SERVICE_CHANNEL_OPTIONS,
     STATUTORY_OPTIONS,
+    WORKFLOW_STAGES,
     NoticeWorkflowError,
     active_attachments,
     active_version,
     add_attachment,
     attest_version,
+    autofill_readonly_parameter_defaults,
     ensure_notice_draft,
     generate_version,
+    import_report_attachments,
     record_verification,
     render_version_pdf,
     update_notice_parameters,
     verification_state,
     version_diff,
 )
+from app.services.narrative_triage import (
+    MAX_NARRATIVE_BYTES,
+    NarrativeTriageError,
+    ingest_narrative,
+    narrative_artifact_path,
+    narrative_case_rows,
+    narrative_export_rows,
+    record_narrative_review,
+    typology_options,
+)
+from app.services.narrative_showcase import seed_narrative_showcase_cases
 from app.services.officers import active_officer_profiles, can_access_case, visible_cases
 from app.services.role_views import role_view_registry
 from app.services.risk import live_risk_check, risk_check, risk_page_data
@@ -146,7 +165,7 @@ from app.services.sessions import (
 from app.services.strategy import engine_strategies, strategy_analysis, strategy_delta
 from app.services.time import format_ist, now_ms
 from app.services.work_context import read_working_context, write_working_context
-from app.services.workspace import navigation_counts
+from app.services.workspace import navigation_counts, navigation_gates
 from app.services.worker import SupervisedFrontierWorker
 from app.services.workflow_seed import seed_workflow_states
 from app.settings import ROOT_DIR, settings
@@ -184,6 +203,24 @@ app.add_middleware(
     https_only=settings.session_cookie_secure,
     max_age=settings.session_idle_timeout_seconds + 300,
 )
+
+
+@app.middleware("http")
+async def workstation_presence_permissions_policy(request: Request, call_next):
+    response = await call_next(request)
+    enabled = bool(feature_flags()["workstation_presence"]["enabled"])
+    response.headers["Permissions-Policy"] = (
+        "camera=(self), microphone=()" if enabled else "camera=(), microphone=()"
+    )
+    response.headers["Content-Security-Policy"] = "connect-src 'self'"
+    content_type = response.headers.get("content-type", "")
+    if content_type.startswith("text/html") and (
+        request.session.get("session_token") or request.url.path == "/login"
+    ):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 app.mount("/static", StaticFiles(directory=ROOT_DIR / "app" / "static"), name="static")
 
 templates = Jinja2Templates(directory=ROOT_DIR / "app" / "templates")
@@ -384,6 +421,7 @@ def evidence_manifest(
     notice: Notice | None,
     dispatches: list[Dispatch],
     artifact: dict | None = None,
+    narrative_assessments: list[dict] | None = None,
 ) -> dict:
     graph_svg = snapshot_svg(snapshot.result_json).encode("utf-8") if snapshot else b""
     annex = methodology_annex(snapshot.result_json) if snapshot else None
@@ -452,6 +490,7 @@ def evidence_manifest(
             }
             for row in dispatches
         ],
+        "narrative_assessments": list(narrative_assessments or []),
         "methodology_annex": annex,
         "audit": {
             "chain_verified": verify_audit_chain(),
@@ -467,6 +506,7 @@ def evidence_bundle_bytes(
     notice: Notice | None,
     dispatches: list[Dispatch],
     artifact: dict | None = None,
+    narrative_assessments: list[dict] | None = None,
 ) -> bytes:
     manifest = evidence_manifest(
         case,
@@ -475,6 +515,7 @@ def evidence_bundle_bytes(
         dispatches=dispatches,
         notice=notice,
         artifact=artifact,
+        narrative_assessments=narrative_assessments,
     )
     buffer = BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -497,6 +538,11 @@ def evidence_bundle_bytes(
             ),
         )
         archive.writestr("case.json", json.dumps(case.model_dump(mode="json"), indent=2, sort_keys=True))
+        if narrative_assessments:
+            archive.writestr(
+                "narrative_assessments.json",
+                json.dumps(narrative_assessments, indent=2, sort_keys=True),
+            )
         if snapshot:
             archive.writestr(
                 "trace_snapshot.json",
@@ -529,10 +575,26 @@ def evidence_bundle_bytes(
     return buffer.getvalue()
 
 
+MANUAL_INTAKE_FIELDS = {
+    "payment_txid": {
+        "label": "Payment hash",
+        "input_label": "Verified payment hash",
+        "placeholder": "64-character transaction hash",
+        "maxlength": "64",
+    },
+    "complainant_contact_redacted": {
+        "label": "Complainant contact on record",
+        "input_label": "Verified contact note",
+        "placeholder": "Redacted contact note",
+        "maxlength": "160",
+    },
+}
+
+
 def build_intake_particulars(record: dict | None, chain: str | None = None, *, attempted: bool = False) -> tuple[list[dict], int, str]:
     missing_text = "Manual addition required"
 
-    def item(label: str, value: object, valid: bool) -> dict:
+    def item(key: str, label: str, value: object, valid: bool) -> dict:
         if not record:
             status = "missing" if attempted else "pending"
             display = missing_text if attempted else "Awaiting input"
@@ -542,18 +604,25 @@ def build_intake_particulars(record: dict | None, chain: str | None = None, *, a
         else:
             status = "missing"
             display = missing_text
-        return {"label": label, "value": display, "status": status}
+        manual = MANUAL_INTAKE_FIELDS.get(key) if record and status == "missing" else None
+        return {
+            "key": key,
+            "label": label,
+            "value": display,
+            "status": status,
+            "manual": manual,
+        }
 
     if not record:
         rows = [
-            item("Complainant jurisdiction", None, False),
-            item("Complaint filed", None, False),
-            item("Victim payment time", None, False),
-            item("Amount reported", None, False),
-            item("Recipient address", None, False),
-            item("Chain and asset", None, False),
-            item("Payment hash", None, False),
-            item("Complainant contact on record", None, False),
+            item("jurisdiction", "Complainant jurisdiction", None, False),
+            item("filed_ts_ms", "Complaint filed", None, False),
+            item("victim_payment_ts_ms", "Victim payment time", None, False),
+            item("amount_reported_base", "Amount reported", None, False),
+            item("reported_address", "Recipient address", None, False),
+            item("chain_asset", "Chain and asset", None, False),
+            item("payment_txid", "Payment hash", None, False),
+            item("complainant_contact_redacted", "Complainant contact on record", None, False),
         ]
     else:
         asset = record.get("asset") or {}
@@ -561,19 +630,226 @@ def build_intake_particulars(record: dict | None, chain: str | None = None, *, a
         txid_valid = isinstance(txid, str) and len(txid) == 64 and all(char in "0123456789abcdefABCDEF" for char in txid)
         amount = record.get("amount_reported_base")
         rows = [
-            item("Complainant jurisdiction", record.get("jurisdiction"), bool(record.get("jurisdiction"))),
-            item("Complaint filed", format_ist(record["filed_ts_ms"]) if record.get("filed_ts_ms") else None, bool(record.get("filed_ts_ms"))),
-            item("Victim payment time", format_ist(record["victim_payment_ts_ms"]) if record.get("victim_payment_ts_ms") else None, bool(record.get("victim_payment_ts_ms"))),
-            item("Amount reported", format_amount(amount) if isinstance(amount, int) and amount > 0 else None, isinstance(amount, int) and amount > 0),
-            item("Recipient address", short_value(record.get("reported_address"), 12, 8), bool(record.get("reported_address"))),
-            item("Chain and asset", f"{chain} · {asset.get('symbol')}" if chain and asset.get("symbol") else None, bool(chain and asset.get("symbol"))),
-            item("Payment hash", short_value(txid, 12, 8), txid_valid),
-            item("Complainant contact on record", record.get("complainant_contact_redacted"), bool(record.get("complainant_contact_redacted"))),
+            item("jurisdiction", "Complainant jurisdiction", record.get("jurisdiction"), bool(record.get("jurisdiction"))),
+            item("filed_ts_ms", "Complaint filed", format_ist(record["filed_ts_ms"]) if record.get("filed_ts_ms") else None, bool(record.get("filed_ts_ms"))),
+            item("victim_payment_ts_ms", "Victim payment time", format_ist(record["victim_payment_ts_ms"]) if record.get("victim_payment_ts_ms") else None, bool(record.get("victim_payment_ts_ms"))),
+            item("amount_reported_base", "Amount reported", format_amount(amount) if isinstance(amount, int) and amount > 0 else None, isinstance(amount, int) and amount > 0),
+            item("reported_address", "Recipient address", short_value(record.get("reported_address"), 12, 8), bool(record.get("reported_address"))),
+            item("chain_asset", "Chain and asset", f"{chain} · {asset.get('symbol')}" if chain and asset.get("symbol") else None, bool(chain and asset.get("symbol"))),
+            item("payment_txid", "Payment hash", short_value(txid, 12, 8), txid_valid),
+            item("complainant_contact_redacted", "Complainant contact on record", record.get("complainant_contact_redacted"), bool(record.get("complainant_contact_redacted"))),
         ]
 
     completed = sum(row["status"] == "complete" for row in rows)
     state = "complete" if completed == len(rows) else "missing" if attempted else "pending"
     return rows, completed, state
+
+
+def _manual_particulars(request: Request) -> dict:
+    return dict(request.session.get("manual_case_particulars") or {})
+
+
+def _manual_particulars_for_ack(request: Request, ack_no: str) -> dict:
+    return dict(_manual_particulars(request).get(ack_no) or {})
+
+
+def _record_with_manual_particulars(record: dict | None, manual_values: dict | None) -> dict | None:
+    if record is None:
+        return None
+    amended = dict(record)
+    for field in MANUAL_INTAKE_FIELDS:
+        value = (manual_values or {}).get(field)
+        if isinstance(value, str) and value.strip():
+            amended[field] = value.strip()
+    return amended
+
+
+def _store_manual_particular(request: Request, ack_no: str, field: str, value: str) -> None:
+    manual = _manual_particulars(request)
+    per_ack = dict(manual.get(ack_no) or {})
+    per_ack[field] = value
+    manual[ack_no] = per_ack
+    request.session["manual_case_particulars"] = manual
+
+
+def _validate_manual_particular(field: str, value: str) -> str:
+    normalized = value.strip()
+    if field == "payment_txid":
+        if not re.fullmatch(r"[a-fA-F0-9]{64}", normalized):
+            raise HTTPException(422, "Payment hash must be a 64-character hexadecimal transaction hash.")
+        return normalized
+    if field == "complainant_contact_redacted":
+        if not normalized:
+            raise HTTPException(422, "Complainant contact note is required.")
+        if len(normalized) > 160:
+            raise HTTPException(422, "Complainant contact note must be 160 characters or fewer.")
+        return normalized
+    raise HTTPException(422, "Unsupported manual particular.")
+
+
+def _complaint_record_from_case(case: Case) -> dict:
+    return {
+        "ack_no": case.ack_no,
+        "category": case.category,
+        "jurisdiction": case.jurisdiction,
+        "filed_ts_ms": case.filed_ts_ms,
+        "amount_reported_base": case.amount_reported_base,
+        "asset": {"symbol": case.asset_symbol, "decimals": case.asset_decimals},
+        "chain": {"family": case.chain_family, "network": case.chain_network},
+        "reported_address": case.reported_address,
+        "payment_txid": case.payment_txid,
+        "victim_payment_ts_ms": case.payment_ts_ms,
+        "complainant_contact_redacted": case.complainant_contact_redacted,
+    }
+
+
+def narrative_triage_context(session: Session, case: Case) -> dict:
+    gate = feature_flags()["narrative_triage"]
+    return {
+        "gate": gate,
+        "rows": narrative_case_rows(session, int(case.id or 0)),
+        "typologies": typology_options(),
+    }
+
+
+def _queue_narrative_events(
+    session: Session,
+    *,
+    case: Case,
+    user: dict,
+    narrative: ComplaintNarrative,
+    assessment: NarrativeAssessment,
+    created: bool,
+) -> None:
+    if created:
+        queue_audit_event(
+            session,
+            actor=user["pis"],
+            actor_name=user.get("name"),
+            actor_rank=user.get("rank"),
+            actor_role=user.get("role"),
+            action="narrative.ingested",
+            subject=case.ack_no,
+            entity_type="complaint_narrative",
+            entity_id=narrative.id,
+            case_id=case.id,
+            summary="Complaint narrative source recorded",
+            data={
+                "source_kind": narrative.source_kind,
+                "source_sha256": narrative.source_sha256,
+                "extraction_status": narrative.extraction_status,
+                "mime_type": narrative.mime_type,
+                "size_bytes": narrative.size_bytes,
+            },
+        )
+        queue_audit_event(
+            session,
+            actor=user["pis"],
+            actor_name=user.get("name"),
+            actor_rank=user.get("rank"),
+            actor_role=user.get("role"),
+            action="narrative.assessed",
+            subject=case.ack_no,
+            entity_type="narrative_assessment",
+            entity_id=assessment.id,
+            case_id=case.id,
+            summary="Complaint narrative typology indicators assessed",
+            data={
+                "source_sha256": narrative.source_sha256,
+                "result_sha256": assessment.result_sha256,
+                "status": assessment.status,
+                "analyzer_revision": assessment.analyzer_revision,
+                "taxonomy_revision": assessment.taxonomy_revision,
+                "candidate_keys": [
+                    str(item.get("key"))
+                    for item in assessment.result_json.get("candidates") or []
+                ],
+                "probability_enabled": False,
+            },
+        )
+
+
+def _ingest_connector_narratives(session: Session, case: Case, user: dict) -> None:
+    if not feature_flags()["narrative_triage"]["enabled"]:
+        return
+    sources: list[dict] = []
+    fetch_text = getattr(complaints, "fetch_narrative", None)
+    try:
+        structured = fetch_text(case.ack_no) if callable(fetch_text) else None
+    except Exception as exc:
+        append_audit_event(
+            user["pis"],
+            "narrative.connector_failed",
+            case.ack_no,
+            {"case_id": case.id, "source_kind": "complaint_connector_text", "failure_class": type(exc).__name__},
+        )
+        structured = None
+    if structured is not None and structured.get("text") is not None:
+        sources.append(
+            {
+                "source_kind": "complaint_connector_text",
+                "source_ref": str(structured.get("source_ref") or f"narrative:{case.ack_no}"),
+                "language": str(structured.get("language") or "und"),
+                "original_name": str(structured.get("name") or "complaint-narrative.txt"),
+                "mime_type": "text/plain",
+                "data": str(structured["text"]).encode("utf-8"),
+                "provenance": str(structured.get("provenance") or "Complaint-source narrative field"),
+                "retrieved_ts_ms": structured.get("retrieved_ts_ms"),
+            }
+        )
+    try:
+        source_document = complaints.fetch_document(case.ack_no, "complaint")
+    except Exception as exc:
+        append_audit_event(
+            user["pis"],
+            "narrative.connector_failed",
+            case.ack_no,
+            {"case_id": case.id, "source_kind": "complaint_connector_pdf", "failure_class": type(exc).__name__},
+        )
+        source_document = None
+    if source_document is not None and source_document.get("mime_type") == "application/pdf":
+        sources.append(
+            {
+                "source_kind": "complaint_connector_pdf",
+                "source_ref": f"complaint:{case.ack_no}:{source_document['name']}",
+                "language": str(source_document.get("language") or "en"),
+                "original_name": str(source_document["name"]),
+                "mime_type": "application/pdf",
+                "data": bytes(source_document["data"]),
+                "provenance": str(source_document.get("provenance") or "Complaint-source document"),
+                "retrieved_ts_ms": source_document.get("retrieved_ts_ms"),
+            }
+        )
+    for source in sources:
+        try:
+            narrative, assessment, created = ingest_narrative(
+                session,
+                case_id=int(case.id or 0),
+                created_by_pis=user["pis"],
+                **source,
+            )
+            _queue_narrative_events(
+                session,
+                case=case,
+                user=user,
+                narrative=narrative,
+                assessment=assessment,
+                created=created,
+            )
+            commit_and_flush_audit(session)
+        except Exception as exc:
+            session.rollback()
+            append_audit_event(
+                user["pis"],
+                "narrative.ingest_failed",
+                case.ack_no,
+                {
+                    "case_id": case.id,
+                    "source_kind": source.get("source_kind"),
+                    "failure_class": type(exc).__name__,
+                    "trace_blocked": False,
+                },
+            )
 
 
 def session_user(
@@ -671,8 +947,17 @@ def get_active_case(request: Request, session: Session) -> Case | None:
     return case
 
 
-def template_context(request: Request, user: dict | None = None) -> dict:
+def template_context(
+    request: Request,
+    user: dict | None = None,
+    session: Session | None = None,
+) -> dict:
     role = str((user or {}).get("role") or OfficerRole.io.value)
+    active_case = active_case_from_session(request)
+    presence_flag = feature_flags()["workstation_presence"]
+    presence_available = bool(presence_flag["enabled"])
+    if not presence_available:
+        request.session.pop("workstation_presence_enabled", None)
     return {
         "request": request,
         "user": user,
@@ -680,7 +965,8 @@ def template_context(request: Request, user: dict | None = None) -> dict:
         "health": {"ok": True, "label": "Fixture systems operational"},
         "source_health": complaints.health(),
         "demo": demo_case(),
-        "active_case": active_case_from_session(request),
+        "active_case": active_case,
+        "navigation_gates": navigation_gates(session, active_case),
         "working_context": read_working_context(request.session, role=role),
         "role_view_registry": role_view_registry(),
         "navigation_routes": {
@@ -702,6 +988,14 @@ def template_context(request: Request, user: dict | None = None) -> dict:
             "obscure_seconds": settings.session_idle_obscure_seconds,
             "warning_seconds": settings.session_idle_warning_seconds,
             "timeout_seconds": settings.session_idle_timeout_seconds,
+        },
+        "workstation_presence": {
+            "available": presence_available,
+            "enabled_for_session": presence_available
+            and request.session.get("workstation_presence_enabled") is True,
+            "absence_ms": max(1, settings.presence_absence_seconds) * 1000,
+            "check_interval_ms": max(100, settings.presence_check_interval_ms),
+            "resume_grace_ms": max(0, settings.presence_resume_grace_seconds) * 1000,
         },
     }
 
@@ -866,6 +1160,37 @@ def extend_session(
     require_csrf(request, csrf_token)
     row: OfficerSession = request.state.officer_session
     return {"status": "extended", "expires_ts_ms": row.expires_ts_ms}
+
+
+@app.post("/api/session/presence")
+async def update_workstation_presence(
+    request: Request,
+    user: dict = Depends(session_user),
+) -> dict:
+    try:
+        payload = await request.json()
+    except ValueError as exc:
+        raise HTTPException(
+            422, "Presence preference requires a boolean enabled value."
+        ) from exc
+    if not isinstance(payload, dict) or not isinstance(payload.get("enabled"), bool):
+        raise HTTPException(422, "Presence preference requires a boolean enabled value.")
+    require_csrf(request, request.headers.get("x-csrf-token") or payload.get("csrf_token"))
+    flag = feature_flags()["workstation_presence"]
+    if not flag["enabled"]:
+        raise HTTPException(409, "Workstation presence monitoring is unavailable.")
+    enabled = payload["enabled"]
+    current = request.session.get("workstation_presence_enabled") is True
+    request.session["workstation_presence_enabled"] = enabled
+    if current != enabled:
+        row: OfficerSession = request.state.officer_session
+        append_audit_event(
+            user["pis"],
+            "session.presence_monitoring_changed",
+            f"session:{row.id}",
+            {"session_id": row.id, "enabled": enabled},
+        )
+    return {"available": True, "enabled": enabled}
 
 
 @app.get("/api/work-context")
@@ -1068,7 +1393,7 @@ def sessions_page(
         request,
         "sessions.html",
         {
-            **template_context(request, user),
+            **template_context(request, user, session),
             "sessions": rows,
             "current_session_id": current.id,
         },
@@ -1081,6 +1406,7 @@ def audit_log_page(
     subject: str | None = Query(default=None),
     action: str | None = Query(default=None),
     actor: str | None = Query(default=None),
+    session: Session = Depends(get_session),
     user: dict = Depends(session_user),
 ) -> HTMLResponse:
     subject_filter = _audit_filter_value(subject)
@@ -1095,7 +1421,7 @@ def audit_log_page(
         request,
         "audit_log.html",
         {
-            **template_context(request, user),
+            **template_context(request, user, session),
             "audit_rows": rows,
             "audit_actions": action_options,
             "audit_filters": {
@@ -1143,7 +1469,8 @@ def logout_all_sessions(
 
 @app.get("/docket", response_class=HTMLResponse)
 def docket(request: Request, session: Session = Depends(get_session), user: dict = Depends(session_user)) -> HTMLResponse:
-    case = get_active_case(request, session) or seed_demo(session)
+    active_context_case = get_active_case(request, session)
+    case = active_context_case or seed_demo(session)
     database_name = getattr(session.get_bind().url, "database", None)
     use_dynamic_docket = (
         settings.mode == "fixture"
@@ -1152,9 +1479,11 @@ def docket(request: Request, session: Session = Depends(get_session), user: dict
     )
     if use_dynamic_docket:
         seed_workflow_states(session)
+        seed_narrative_showcase_cases(session)
     trace_mode = "fixture" if complaints.fetch(case.ack_no) else "auto"
     snapshot, finding = get_or_create_trace(session, case, trace_mode=trace_mode)
-    set_active_case(request, case, snapshot, finding, session)
+    if active_context_case is not None:
+        set_active_case(request, case, snapshot, finding, session)
     notice = session.exec(select(Notice).where(Notice.case_id == case.id)).first()
     dispatches = (
         session.exec(select(Dispatch).where(Dispatch.notice_id == notice.id).order_by(Dispatch.id)).all()
@@ -1168,7 +1497,7 @@ def docket(request: Request, session: Session = Depends(get_session), user: dict
     ).all()
     retrace_audit = read_audit_events(subject=case.ack_no, actions={"trace.retrace"})
     ctx = {
-        **template_context(request, user),
+        **template_context(request, user, session),
         "case": case,
         "cases": [case],
         "snapshot": snapshot,
@@ -1180,7 +1509,7 @@ def docket(request: Request, session: Session = Depends(get_session), user: dict
                 session,
                 officer_pis=user["pis"],
                 role=user["role"],
-                active_case_id=int(case.id or 0),
+                active_case_id=int(case.id or 0) if active_context_case is not None else 0,
             )
             if use_dynamic_docket
             else docket_fixture(case)
@@ -1192,18 +1521,47 @@ def docket(request: Request, session: Session = Depends(get_session), user: dict
 
 
 @app.get("/cases/new", response_class=HTMLResponse)
-def new_case(request: Request, user: dict = Depends(session_user)) -> HTMLResponse:
-    request.session.pop("pending_case_ack", None)
-    particulars, completed, intake_state = build_intake_particulars(None)
+def new_case(
+    request: Request,
+    case_id: int | None = Query(default=None),
+    session: Session = Depends(get_session),
+    user: dict = Depends(session_user),
+) -> HTMLResponse:
+    case = session.get(Case, case_id) if case_id is not None else None
+    if case is not None and not can_access_case(
+        session,
+        case_id=int(case.id or 0),
+        officer_pis=user["pis"],
+        role=user["role"],
+    ):
+        raise HTTPException(404)
+    if case is None:
+        request.session.pop("pending_case_ack", None)
+        request.session.pop("manual_case_particulars", None)
+        record = None
+        ack_value = ""
+        particulars, completed, intake_state = build_intake_particulars(None)
+    else:
+        record = _complaint_record_from_case(case)
+        ack_value = case.ack_no
+        particulars, completed, intake_state = build_intake_particulars(
+            record,
+            detect_chain(case.reported_address),
+            attempted=True,
+        )
+        if completed == len(particulars):
+            request.session["pending_case_ack"] = case.ack_no
     return templates.TemplateResponse(
         request,
         "case_intake.html",
         {
-            **template_context(request, user),
+            **template_context(request, user, session),
             "referrals": complaints.referrals_today(),
             "samples": complaints.sample_references(),
-            "record": None,
-            "ack_value": "",
+            "record": record,
+            "case": case,
+            "narrative_triage": narrative_triage_context(session, case) if case else None,
+            "ack_value": ack_value,
             "particulars": particulars,
             "completed_particulars": completed,
             "intake_state": intake_state,
@@ -1214,18 +1572,28 @@ def new_case(request: Request, user: dict = Depends(session_user)) -> HTMLRespon
 def _live_intake_response(
     request: Request,
     user: dict,
+    session: Session,
     *,
     values: dict | None = None,
     error: str | None = None,
     status_code: int = 200,
 ) -> HTMLResponse:
-    live_flag = feature_flags()["live_tron_trace"]
+    flags = feature_flags()
+    live_flags = {
+        "TRON": flags["live_tron_trace"],
+        "EVM": flags.get("live_evm_trace", {"enabled": False}),
+        "BTC": flags.get("live_btc_trace", {"enabled": False}),
+    }
+    enabled_chains = [name for name, flag in live_flags.items() if flag.get("enabled")]
     return templates.TemplateResponse(
         request,
         "live_intake.html",
         {
-            **template_context(request, user),
-            "live_flag": live_flag,
+            **template_context(request, user, session),
+            "live_flag": flags["live_tron_trace"],
+            "live_flags": live_flags,
+            "enabled_live_chains": enabled_chains,
+            "multi_chain_live_available": bool(enabled_chains),
             "values": values or {},
             "intake_error": error,
         },
@@ -1234,7 +1602,11 @@ def _live_intake_response(
 
 
 @app.get("/cases/live/new", response_class=HTMLResponse)
-def new_live_case(request: Request, user: dict = Depends(session_user)) -> HTMLResponse:
+def new_live_case(
+    request: Request,
+    session: Session = Depends(get_session),
+    user: dict = Depends(session_user),
+) -> HTMLResponse:
     draft = request.session.get("risk_case_draft") or {}
     values = (
         {
@@ -1245,7 +1617,7 @@ def new_live_case(request: Request, user: dict = Depends(session_user)) -> HTMLR
         if draft.get("address")
         else None
     )
-    return _live_intake_response(request, user, values=values)
+    return _live_intake_response(request, user, session, values=values)
 
 
 @app.post("/cases/live/start", response_class=HTMLResponse)
@@ -1286,59 +1658,43 @@ def start_live_case(
         "strategy": strategy,
         "include_unconfirmed": include_unconfirmed,
     }
-    live_flag = feature_flags()["live_tron_trace"]
-    if not live_flag["enabled"]:
-        missing = ", ".join(str(name) for name in live_flag.get("missing_gates") or [])
-        detail = f" Missing: {missing}." if missing else ""
-        return _live_intake_response(
-            request,
-            user,
-            values=values,
-            error=f"Live TRON tracing is unavailable.{detail}",
-            status_code=409,
-        )
     try:
-        if seed_kind not in {"address", "txid"}:
-            raise LiveTraceInputError("Select address or transaction hash as the seed type.")
-        normalized_seed = (seed_value or "").strip()
-        if not normalized_seed and seed_kind == "txid":
-            raise LiveTraceInputError("Enter a transaction hash.")
+        try:
+            resolved_seed = resolve_live_seed(
+                seed_kind=seed_kind,
+                seed_value=seed_value,
+                amount=amount,
+                payment_ts_ist=payment_ts_ist,
+                address_seed_value=address_seed_value,
+            )
+        except SeedResolutionError as exc:
+            raise LiveTraceInputError(str(exc)) from exc
+        payment_txid = resolved_seed.payment_txid
+        reported_address = resolved_seed.address
+        amount_base = resolved_seed.amount_base
+        payment_ts_ms = resolved_seed.payment_ts_ms
+        chain_ref = resolved_seed.chain
+        asset_ref = resolved_seed.asset
         if seed_kind == "txid":
-            if not re.fullmatch(r"[a-fA-F0-9]{64}", normalized_seed):
-                raise LiveTraceInputError("Transaction hash must be 64 hexadecimal characters.")
-            try:
-                resolved = tron.resolve_usdt_transfer(normalized_seed)
-            except tron.ProviderConfigurationError as exc:
-                raise LiveTraceInputError(str(exc)) from exc
-            except tron.ProviderResponseError as exc:
-                raise LiveTraceInputError(str(exc)) from exc
-            payment_txid = str(resolved["txid"])
-            reported_address = str(resolved["destination"])
-            amount_base = int(resolved["amount_base"])
-            payment_ts_ms = int(resolved["ts_ms"])
             values["seed_value"] = payment_txid
             values["recipient_address"] = reported_address
-            values["amount"] = _format_usdt_decimal(amount_base)
+            values["amount"] = _format_usdt_decimal(amount_base) if asset_ref.decimals == 6 else str(amount_base)
             values["payment_ts_ist"] = ""
         else:
-            payment_txid = None
-            reported_address = (address_seed_value or normalized_seed).strip()
-            if not reported_address:
-                raise LiveTraceInputError("Enter a TRON address.")
-            if not amount:
-                raise LiveTraceInputError("An address seed requires the confirmed USDT amount.")
-            amount_base = parse_amount_base(amount)
-            payment_ts_ms = parse_ist_timestamp(payment_ts_ist)
-            if payment_ts_ms is None:
-                raise LiveTraceInputError(
-                    "An address seed requires the confirmed payment date and time in IST."
-                )
             values["seed_value"] = reported_address
             values["address_seed_value"] = reported_address
-        family = detect_chain(reported_address)
-        if family != "TRON":
+        trace_flags = feature_flags()
+        trace_flag_key = {
+            "TRON": "live_tron_trace",
+            "EVM": "live_evm_trace",
+            "BTC": "live_btc_trace",
+        }.get(chain_ref.family)
+        live_flag = trace_flags.get(trace_flag_key or "", {"enabled": False})
+        if not live_flag.get("enabled"):
+            missing = ", ".join(str(name) for name in live_flag.get("missing_gates") or [])
+            detail = f" Missing: {missing}." if missing else ""
             raise LiveTraceInputError(
-                f"{family} live tracing is unavailable; this stage supports TRON mainnet only."
+                f"{chain_ref.family} live tracing is unavailable.{detail}"
             )
         params = parse_trace_params(values)
         ack_no = (case_reference or "").strip()
@@ -1352,6 +1708,7 @@ def start_live_case(
         return _live_intake_response(
             request,
             user,
+            session,
             values=values,
             error=str(exc),
             status_code=422,
@@ -1367,11 +1724,15 @@ def start_live_case(
             "filed_ts_ms": ts,
             "amount_reported_base": amount_base,
             "asset": {
-                "symbol": "USDT",
-                "contract": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
-                "decimals": 6,
+                "symbol": asset_ref.symbol,
+                "contract": asset_ref.contract,
+                "decimals": asset_ref.decimals,
             },
-            "chain": {"family": "TRON", "network": "mainnet"},
+            "chain": {
+                "family": chain_ref.family,
+                "network": chain_ref.network,
+                "chain_id": chain_ref.chain_id,
+            },
             "reported_address": reported_address,
             "payment_txid": payment_txid,
             "victim_payment_ts_ms": payment_ts_ms,
@@ -1407,11 +1768,16 @@ def ingest_case(
     request: Request,
     ack_no: Annotated[str, Form()],
     csrf_token: Annotated[str | None, Form()] = None,
+    session: Session = Depends(get_session),
     user: dict = Depends(session_user),
 ) -> HTMLResponse:
     require_csrf(request, csrf_token)
     normalized_ack = ack_no.strip()
-    record = complaints.fetch(normalized_ack) if normalized_ack else None
+    source_record = complaints.fetch(normalized_ack) if normalized_ack else None
+    record = _record_with_manual_particulars(
+        source_record,
+        _manual_particulars_for_ack(request, normalized_ack),
+    )
     chain = detect_chain(record["reported_address"]) if record else None
     particulars, completed, intake_state = build_intake_particulars(
         record,
@@ -1419,17 +1785,81 @@ def ingest_case(
         attempted=bool(normalized_ack),
     )
     if record and completed == len(particulars):
+        case = case_from_complaint(session, record)
+        _ingest_connector_narratives(session, case, user)
         request.session["pending_case_ack"] = record["ack_no"]
     else:
+        case = None
         request.session.pop("pending_case_ack", None)
     return templates.TemplateResponse(
         request,
         "case_intake.html",
         {
-            **template_context(request, user),
+            **template_context(request, user, session),
             "referrals": complaints.referrals_today(),
             "samples": complaints.sample_references(),
             "record": record,
+            "case": case,
+            "narrative_triage": narrative_triage_context(session, case) if case else None,
+            "ack_value": normalized_ack,
+            "chain": chain,
+            "particulars": particulars,
+            "completed_particulars": completed,
+            "intake_state": intake_state,
+        },
+    )
+
+
+@app.post("/cases/manual-particular", response_class=HTMLResponse)
+def add_manual_particular(
+    request: Request,
+    ack_no: Annotated[str, Form()],
+    field: Annotated[str, Form()],
+    value: Annotated[str, Form()],
+    csrf_token: Annotated[str | None, Form()] = None,
+    session: Session = Depends(get_session),
+    user: dict = Depends(session_user),
+) -> HTMLResponse:
+    require_csrf(request, csrf_token)
+    normalized_ack = ack_no.strip()
+    if field not in MANUAL_INTAKE_FIELDS:
+        raise HTTPException(422, "Unsupported manual particular.")
+    source_record = complaints.fetch(normalized_ack) if normalized_ack else None
+    if source_record is None:
+        raise HTTPException(404, "Complaint reference not found in the fixture feed.")
+    verified_value = _validate_manual_particular(field, value)
+    _store_manual_particular(request, normalized_ack, field, verified_value)
+    manual_values = _manual_particulars_for_ack(request, normalized_ack)
+    record = _record_with_manual_particulars(source_record, manual_values)
+    chain = detect_chain(record["reported_address"]) if record else None
+    particulars, completed, intake_state = build_intake_particulars(
+        record,
+        chain,
+        attempted=True,
+    )
+    case = None
+    if record and completed == len(particulars):
+        case = case_from_complaint(session, record)
+        _ingest_connector_narratives(session, case, user)
+        request.session["pending_case_ack"] = record["ack_no"]
+    else:
+        request.session.pop("pending_case_ack", None)
+    append_audit_event(
+        user["pis"],
+        "case.manual_particular_added",
+        normalized_ack,
+        {"field": field, "case_ready": completed == len(particulars)},
+    )
+    return templates.TemplateResponse(
+        request,
+        "case_intake.html",
+        {
+            **template_context(request, user, session),
+            "referrals": complaints.referrals_today(),
+            "samples": complaints.sample_references(),
+            "record": record,
+            "case": case,
+            "narrative_triage": narrative_triage_context(session, case) if case else None,
             "ack_value": normalized_ack,
             "chain": chain,
             "particulars": particulars,
@@ -1454,7 +1884,11 @@ def start_case(
     normalized_ack = ack_no.strip()
     if normalized_ack != request.session.get("pending_case_ack"):
         raise HTTPException(409, "Ingest the complaint record again before starting this trace.")
-    record = complaints.fetch(normalized_ack)
+    source_record = complaints.fetch(normalized_ack)
+    record = _record_with_manual_particulars(
+        source_record,
+        _manual_particulars_for_ack(request, normalized_ack),
+    )
     if not record:
         raise HTTPException(404, "Complaint reference not found in the fixture feed.")
     particulars, completed, _intake_state = build_intake_particulars(
@@ -1465,6 +1899,7 @@ def start_case(
     if completed != len(particulars):
         raise HTTPException(400, "All complaint particulars must be present before tracing.")
     case = case_from_complaint(session, record)
+    _ingest_connector_narratives(session, case, user)
     snapshot, finding = get_or_create_trace(session, case, trace_mode="fixture")
     set_active_case(request, case, snapshot, finding, session)
     record_session_activity(session, request.state.officer_session, trace_run=True)
@@ -1529,7 +1964,7 @@ def trace_view(
         request,
         template_name,
         {
-            **template_context(request, user),
+            **template_context(request, user, session),
             "case": case,
             "snapshot": snapshot,
             "finding": finding,
@@ -1538,6 +1973,186 @@ def trace_view(
             "explainability": snapshot_explanation(session, snapshot),
         },
     )
+
+
+@app.post("/cases/{case_id}/narratives")
+async def upload_case_narrative(
+    case_id: int,
+    request: Request,
+    session: Session = Depends(get_session),
+    user: dict = Depends(session_user),
+) -> Response:
+    gate = feature_flags()["narrative_triage"]
+    if not gate["enabled"]:
+        raise HTTPException(
+            409,
+            {"message": "Narrative triage is unavailable.", "missing_gates": gate["missing_gates"]},
+        )
+    case = session.get(Case, case_id)
+    if case is None or not can_access_case(
+        session,
+        case_id=case_id,
+        officer_pis=user["pis"],
+        role=user["role"],
+    ):
+        raise HTTPException(404)
+    form = await request.form()
+    require_csrf(request, str(form.get("csrf_token") or ""))
+    text_value = str(form.get("narrative_text") or "")
+    upload = form.get("file")
+    has_text = bool(text_value.strip())
+    has_file = bool(
+        upload is not None
+        and hasattr(upload, "read")
+        and str(getattr(upload, "filename", "") or "").strip()
+    )
+    if has_text == has_file:
+        raise HTTPException(422, "Provide exactly one narrative text or searchable PDF.")
+    if has_file:
+        data = await upload.read(MAX_NARRATIVE_BYTES + 1)
+        original_name = str(upload.filename or "complaint.pdf")
+        mime_type = str(upload.content_type or "application/octet-stream")
+        source_kind = "officer_upload_pdf"
+    else:
+        data = text_value.encode("utf-8")
+        original_name = "officer-narrative.txt"
+        mime_type = "text/plain"
+        source_kind = "officer_text"
+    source_ref = f"manual:{sha256_bytes(data)}"
+    try:
+        narrative, assessment, created = ingest_narrative(
+            session,
+            case_id=case_id,
+            source_kind=source_kind,
+            source_ref=source_ref,
+            language=str(form.get("language") or "en"),
+            original_name=original_name,
+            mime_type=mime_type,
+            data=data,
+            provenance="Submitted by an authenticated officer for advisory narrative review",
+            created_by_pis=user["pis"],
+        )
+    except NarrativeTriageError as exc:
+        session.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    _queue_narrative_events(
+        session,
+        case=case,
+        user=user,
+        narrative=narrative,
+        assessment=assessment,
+        created=created,
+    )
+    commit_and_flush_audit(session)
+    return RedirectResponse(f"/cases/new?case_id={case_id}#narrative-triage", status_code=303)
+
+
+@app.get("/cases/{case_id}/narratives/{narrative_id}/source")
+def open_case_narrative_source(
+    case_id: int,
+    narrative_id: int,
+    session: Session = Depends(get_session),
+    user: dict = Depends(session_user),
+) -> Response:
+    if not can_access_case(
+        session,
+        case_id=case_id,
+        officer_pis=user["pis"],
+        role=user["role"],
+    ):
+        raise HTTPException(404)
+    narrative = session.get(ComplaintNarrative, narrative_id)
+    if narrative is None or narrative.case_id != case_id:
+        raise HTTPException(404)
+    try:
+        path = narrative_artifact_path(narrative.storage_ref)
+    except NarrativeTriageError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    if not path.is_file():
+        raise HTTPException(404)
+    queue_audit_event(
+        session,
+        actor=user["pis"],
+        actor_name=user.get("name"),
+        actor_rank=user.get("rank"),
+        actor_role=user.get("role"),
+        action="narrative.source_opened",
+        subject=str(case_id),
+        entity_type="complaint_narrative",
+        entity_id=narrative.id,
+        case_id=case_id,
+        summary="Protected complaint narrative source opened",
+        data={"source_sha256": narrative.source_sha256, "mime_type": narrative.mime_type},
+    )
+    commit_and_flush_audit(session)
+    disposition_name = re.sub(r'["\\\r\n]+', "_", narrative.original_name)
+    return Response(
+        path.read_bytes(),
+        media_type=narrative.mime_type,
+        headers={"Content-Disposition": f'inline; filename="{disposition_name}"'},
+    )
+
+
+@app.post("/cases/{case_id}/narrative-assessments/{assessment_id}/review")
+async def review_case_narrative(
+    case_id: int,
+    assessment_id: int,
+    request: Request,
+    session: Session = Depends(get_session),
+    user: dict = Depends(session_user),
+) -> Response:
+    gate = feature_flags()["narrative_triage"]
+    if not gate["enabled"]:
+        raise HTTPException(
+            409,
+            {"message": "Narrative triage is unavailable.", "missing_gates": gate["missing_gates"]},
+        )
+    case = session.get(Case, case_id)
+    if case is None or not can_access_case(
+        session,
+        case_id=case_id,
+        officer_pis=user["pis"],
+        role=user["role"],
+    ):
+        raise HTTPException(404)
+    assessment = session.get(NarrativeAssessment, assessment_id)
+    if assessment is None or assessment.case_id != case_id:
+        raise HTTPException(404)
+    form = await request.form()
+    require_csrf(request, str(form.get("csrf_token") or ""))
+    try:
+        review = record_narrative_review(
+            session,
+            assessment=assessment,
+            accepted_typologies=[str(item) for item in form.getlist("accepted_typologies")],
+            primary_typology=str(form.get("primary_typology") or "none"),
+            reviewer_pis=user["pis"],
+            note=str(form.get("review_note") or ""),
+        )
+    except NarrativeTriageError as exc:
+        session.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    queue_audit_event(
+        session,
+        actor=user["pis"],
+        actor_name=user.get("name"),
+        actor_rank=user.get("rank"),
+        actor_role=user.get("role"),
+        action="narrative.reviewed",
+        subject=case.ack_no,
+        entity_type="narrative_assessment_review",
+        entity_id=review.id,
+        case_id=case_id,
+        summary="Complaint narrative typology review recorded",
+        data={
+            "assessment_id": assessment.id,
+            "result_sha256": assessment.result_sha256,
+            "accepted_typologies": review.accepted_typologies,
+            "primary_typology": review.primary_typology,
+        },
+    )
+    commit_and_flush_audit(session)
+    return RedirectResponse(f"/cases/new?case_id={case_id}#narrative-triage", status_code=303)
 
 
 @app.post("/traces/{snapshot_id}/retrace")
@@ -1747,7 +2362,7 @@ def canvas(
         request,
         template_name,
         {
-            **template_context(request, user),
+            **template_context(request, user, session),
             "case": case,
             "snapshot": snap,
             "finding": finding,
@@ -1788,7 +2403,7 @@ def finding_view(
         request,
         "finding.html",
         {
-            **template_context(request, user),
+            **template_context(request, user, session),
             "case": case,
             "snapshot": snapshot,
             "finding": finding,
@@ -1829,7 +2444,7 @@ async def update_checks(
             raise HTTPException(400, "All pre-notice review checks must pass first.")
         notice = prepare_notice(session, finding, user["pis"])
         append_audit_event(user["pis"], "notice.prepare", notice.notice_no)
-        return RedirectResponse(f"/notices/{notice.id}", status_code=303)
+        return RedirectResponse(f"/notices/{notice.id}/workflow", status_code=303)
     return RedirectResponse(f"/findings/{finding_id}", status_code=303)
 
 
@@ -1850,7 +2465,7 @@ def create_notice(
         raise HTTPException(400, "All pre-notice review checks must pass first.")
     notice = prepare_notice(session, finding, user["pis"])
     append_audit_event(user["pis"], "notice.prepare", notice.notice_no)
-    return RedirectResponse(f"/notices/{notice.id}", status_code=303)
+    return RedirectResponse(f"/notices/{notice.id}/workflow", status_code=303)
 
 
 @app.get("/notices")
@@ -1946,12 +2561,50 @@ def notice_view(
         else {"name": notice.countersigned_by_pis or "", "pis": notice.countersigned_by_pis or ""}
     )
     workflow_draft = ensure_notice_draft(session, notice, author=user)
+    workflow_mode = snapshot.result_json.get("engine", {}).get("mode", "fixture")
+    workflow_attachments = active_attachments(session, int(workflow_draft.id or 0))
+    report_attachment_imported = []
+    if (
+        workflow_mode == "fixture"
+        and not workflow_draft.generated
+        and user["role"] in {"io", "admin"}
+        and (user["role"] == "admin" or user["pis"] == workflow_draft.created_by_pis)
+    ):
+        report_attachment_imported = import_report_attachments(
+            session,
+            workflow_draft,
+            ack_no=case.ack_no,
+            complaint_source=complaints,
+            author_pis=user["pis"],
+        )
+        if report_attachment_imported:
+            queue_audit_event(
+                session,
+                actor=user["pis"],
+                actor_name=user["name"],
+                actor_rank=user["rank"],
+                actor_role=user["role"],
+                action="notice.report_attachments_imported",
+                subject=notice.notice_no,
+                entity_type="notice_draft",
+                entity_id=workflow_draft.id,
+                case_id=notice.case_id,
+                summary="Report-number portal attachments imported",
+                data={
+                    "ack_no": case.ack_no,
+                    "slots": [item.slot for item in report_attachment_imported],
+                    "simulated": all(item.simulated for item in report_attachment_imported),
+                },
+                demo_session=True,
+            )
+            commit_and_flush_audit(session)
+            workflow_attachments = active_attachments(session, int(workflow_draft.id or 0))
     workflow_version = active_version(session, workflow_draft)
     return templates.TemplateResponse(
         request,
         "notice.html",
         {
-            **template_context(request, user),
+            **template_context(request, user, session),
             "case": case,
             "finding": finding,
             "snapshot": snapshot,
@@ -1963,6 +2616,11 @@ def notice_view(
             "countersigner": countersigner,
             "workflow_draft": workflow_draft,
             "workflow_version": workflow_version,
+            "workflow_attachments": workflow_attachments,
+            "workflow_mode": workflow_mode,
+            "report_attachment_imported": report_attachment_imported,
+            "service_channel_options": SERVICE_CHANNEL_OPTIONS,
+            "statutory_options": STATUTORY_OPTIONS,
         },
     )
 
@@ -2003,7 +2661,43 @@ def notice_workflow_view(
         role=user["role"],
         patch={"notice_id": notice.id},
     )
+    workflow_mode = snapshot.result_json.get("engine", {}).get("mode", "fixture")
     attachments = active_attachments(session, int(draft.id or 0))
+    imported = []
+    if (
+        workflow_mode == "fixture"
+        and not draft.generated
+        and user["role"] in {"io", "admin"}
+        and (user["role"] == "admin" or user["pis"] == draft.created_by_pis)
+    ):
+        imported = import_report_attachments(
+            session,
+            draft,
+            ack_no=case.ack_no,
+            complaint_source=complaints,
+            author_pis=user["pis"],
+        )
+        if imported:
+            queue_audit_event(
+                session,
+                actor=user["pis"],
+                actor_name=user["name"],
+                actor_rank=user["rank"],
+                actor_role=user["role"],
+                action="notice.report_attachments_imported",
+                subject=notice.notice_no,
+                entity_type="notice_draft",
+                entity_id=draft.id,
+                case_id=notice.case_id,
+                summary="Report-number portal attachments imported",
+                data={
+                    "ack_no": case.ack_no,
+                    "slots": [item.slot for item in imported],
+                    "simulated": all(item.simulated for item in imported),
+                },
+                demo_session=True,
+            )
+            attachments = active_attachments(session, int(draft.id or 0))
     version = active_version(session, draft)
     versions = session.exec(
         select(NoticeVersion)
@@ -2015,12 +2709,24 @@ def notice_workflow_view(
         draft,
         int(request.state.officer_session.id),
     )
+    stage_order = list(WORKFLOW_STAGES)
+    progress_stage = "review" if draft.stage == "generated" else draft.stage
+    if progress_stage not in stage_order:
+        progress_stage = "parameters"
+    requested_stage = str(request.query_params.get("stage") or "")
+    if (
+        requested_stage in stage_order
+        and stage_order.index(requested_stage) <= stage_order.index(progress_stage)
+    ):
+        view_stage = requested_stage
+    else:
+        view_stage = progress_stage
     session.commit()
     return templates.TemplateResponse(
         request,
         "notice_workflow.html",
         {
-            **template_context(request, user),
+            **template_context(request, user, session),
             "notice": notice,
             "case": case,
             "finding": finding,
@@ -2029,9 +2735,13 @@ def notice_workflow_view(
             "version": version,
             "versions": versions,
             "attachments": attachments,
+            "report_attachment_imported": imported,
             "verification": verification,
             "statutory_options": STATUTORY_OPTIONS,
-            "workflow_mode": snapshot.result_json.get("engine", {}).get("mode", "fixture"),
+            "service_channel_options": SERVICE_CHANNEL_OPTIONS,
+            "workflow_mode": workflow_mode,
+            "workflow_progress_stage": progress_stage,
+            "workflow_view_stage": view_stage,
         },
     )
 
@@ -2048,41 +2758,23 @@ async def save_notice_workflow_parameters(
         raise HTTPException(403, "Only the drafting officer may edit notice parameters.")
     form = await request.form()
     require_csrf(request, str(form.get("csrf_token") or ""))
+    autofill_readonly_parameter_defaults(session, draft)
     current = dict(draft.parameters)
     try:
-        amount_base = int(str(form.get("amount_base") or ""))
         duration_hours = int(str(form.get("duration_hours") or ""))
     except ValueError as exc:
-        raise HTTPException(422, "Amount and duration must be whole numbers.") from exc
-    hashes = [value.strip() for value in str(form.get("transaction_hashes") or "").splitlines() if value.strip()]
+        raise HTTPException(422, "Response duration must be a whole number.") from exc
     current.update(
         {
-            "transaction_hashes": hashes,
-            "amount_base": amount_base,
             "duration_hours": duration_hours,
-            "vasp_name": str(form.get("vasp_name") or "").strip(),
             "vasp_contact": str(form.get("vasp_contact") or "").strip(),
-            "jurisdiction": str(form.get("jurisdiction") or "").strip(),
-            "officer_pis": str(form.get("officer_pis") or "").strip(),
-            "officer_name": str(form.get("officer_name") or "").strip(),
-            "officer_rank": str(form.get("officer_rank") or "").strip(),
-            "supervisor_pis": str(form.get("supervisor_pis") or "").strip(),
-            "supervisor_name": str(form.get("supervisor_name") or "").strip(),
-            "statutory_key": str(form.get("statutory_key") or "").strip(),
+            "service_channels": [str(value) for value in form.getlist("service_channels")],
         }
     )
     try:
         update_notice_parameters(session, draft, current)
     except NoticeWorkflowError as exc:
         raise HTTPException(422, str(exc)) from exc
-    annex_enabled = str(form.get("annex_enabled") or "") == "on"
-    if draft.annex_enabled != annex_enabled:
-        draft.annex_enabled = annex_enabled
-        draft.dirty = draft.generated
-        draft.attested_by_pis = None
-        draft.attested_ts_ms = None
-        draft.attested_version_no = None
-        session.add(draft)
     queue_audit_event(
         session,
         actor=user["pis"],
@@ -2098,7 +2790,55 @@ async def save_notice_workflow_parameters(
         data={"dirty": draft.dirty, "annex_enabled": draft.annex_enabled},
     )
     commit_and_flush_audit(session)
-    return RedirectResponse(f"/notices/{notice.id}/workflow", status_code=303)
+    return RedirectResponse(f"/notices/{notice.id}/workflow#stage-attachments", status_code=303)
+
+
+@app.get("/notices/{notice_id}/workflow/attachments/{attachment_id}")
+def open_notice_workflow_attachment(
+    notice_id: int,
+    attachment_id: int,
+    session: Session = Depends(get_session),
+    user: dict = Depends(session_user),
+) -> Response:
+    notice, _case, _finding, _snapshot, draft = _notice_workflow_context(session, notice_id, user)
+    attachment = session.get(NoticeAttachment, attachment_id)
+    if (
+        attachment is None
+        or attachment.draft_id != draft.id
+        or attachment.superseded_by_id is not None
+        or attachment.slot not in ATTACHMENT_SLOTS
+    ):
+        raise HTTPException(404)
+    relative = Path(attachment.storage_ref)
+    if relative.is_absolute() or ".." in relative.parts:
+        raise HTTPException(409, "Attachment storage reference is invalid.")
+    path = settings.var_dir / relative
+    if not path.exists():
+        fallback = ROOT_DIR / relative
+        path = fallback if fallback.exists() else path
+    if not path.exists():
+        raise HTTPException(404)
+    queue_audit_event(
+        session,
+        actor=user["pis"],
+        actor_name=user["name"],
+        actor_rank=user["rank"],
+        actor_role=user["role"],
+        action="notice.attachment_opened",
+        subject=notice.notice_no,
+        entity_type="notice_attachment",
+        entity_id=attachment.id,
+        case_id=notice.case_id,
+        summary="Notice attachment opened",
+        data={"slot": attachment.slot, "sha256": attachment.sha256},
+    )
+    commit_and_flush_audit(session)
+    disposition_name = re.sub(r'["\\\r\n]+', "_", attachment.original_name)
+    return Response(
+        path.read_bytes(),
+        media_type=attachment.mime_type,
+        headers={"Content-Disposition": f'inline; filename="{disposition_name}"'},
+    )
 
 
 @app.post("/notices/{notice_id}/workflow/attachments")
@@ -2116,7 +2856,7 @@ async def upload_notice_workflow_attachment(
     upload = form.get("file")
     if upload is None or not hasattr(upload, "read"):
         raise HTTPException(422, "Select an attachment.")
-    data = await upload.read()
+    data = await upload.read(MAX_ATTACHMENT_BYTES + 1)
     try:
         add_attachment(
             session,
@@ -2147,7 +2887,7 @@ async def upload_notice_workflow_attachment(
         data={"slot": str(form.get("slot") or ""), "size_bytes": len(data)},
     )
     commit_and_flush_audit(session)
-    return RedirectResponse(f"/notices/{notice.id}/workflow", status_code=303)
+    return RedirectResponse(f"/notices/{notice.id}/workflow#stage-attachments", status_code=303)
 
 
 @app.post("/notices/{notice_id}/workflow/attachments/from-complaint-source")
@@ -2197,7 +2937,7 @@ async def import_notice_source_attachment(
         demo_session=True,
     )
     commit_and_flush_audit(session)
-    return RedirectResponse(f"/notices/{notice.id}/workflow", status_code=303)
+    return RedirectResponse(f"/notices/{notice.id}/workflow#stage-attachments", status_code=303)
 
 
 @app.post("/notices/{notice_id}/workflow/generate")
@@ -2231,7 +2971,7 @@ async def generate_notice_workflow_version(
         data={"version_no": version.version_no, "sha256": version.content_sha256},
     )
     commit_and_flush_audit(session)
-    return RedirectResponse(f"/notices/{notice.id}/workflow#preview", status_code=303)
+    return RedirectResponse(f"/notices/{notice.id}/workflow#stage-review", status_code=303)
 
 
 @app.post("/notices/{notice_id}/workflow/attest")
@@ -2267,7 +3007,7 @@ async def attest_notice_workflow_version(
         data={"version_no": draft.attested_version_no},
     )
     commit_and_flush_audit(session)
-    return RedirectResponse(f"/notices/{notice.id}/workflow#verification", status_code=303)
+    return RedirectResponse(f"/notices/{notice.id}/workflow#stage-verification", status_code=303)
 
 
 @app.post("/notices/{notice_id}/workflow/verify")
@@ -2316,7 +3056,7 @@ async def verify_notice_workflow_session(
     commit_and_flush_audit(session)
     if not success:
         raise HTTPException(503, "The selected external sign-in is not configured in this prototype.")
-    return RedirectResponse(f"/notices/{notice.id}/workflow#routing", status_code=303)
+    return RedirectResponse(f"/notices/{notice.id}/workflow#stage-routing", status_code=303)
 
 
 @app.post("/notices/{notice_id}/workflow/route")
@@ -2782,7 +3522,7 @@ def dispatch_tracker(
         request,
         "dispatch_tracker.html",
         {
-            **template_context(request, user),
+            **template_context(request, user, session),
             "rows": rows,
             "counts": tracker_counts(unfiltered_rows),
             "status_labels": TRACKER_STATUS_LABELS,
@@ -3251,21 +3991,26 @@ def _record_risk_lookup(user: dict, result: dict) -> dict:
     )
 
 
-def _risk_template_context(request: Request, user: dict) -> dict:
+def _risk_template_context(request: Request, user: dict, session: Session | None = None) -> dict:
     return {
-        **template_context(request, user),
+        **template_context(request, user, session),
         **risk_page_data(_recent_risk_checks()),
         "live_risk_flag": feature_flags()["live_tron_provider"],
+        "ml_status": prototype_model_status(),
     }
 
 
 @app.get("/risk-check", response_class=HTMLResponse)
-def risk_page(request: Request, user: dict = Depends(session_user)) -> HTMLResponse:
+def risk_page(
+    request: Request,
+    session: Session = Depends(get_session),
+    user: dict = Depends(session_user),
+) -> HTMLResponse:
     return templates.TemplateResponse(
         request,
         "risk.html",
         {
-            **_risk_template_context(request, user),
+            **_risk_template_context(request, user, session),
             "result": None,
             "address": "",
             "risk_error": None,
@@ -3275,13 +4020,35 @@ def risk_page(request: Request, user: dict = Depends(session_user)) -> HTMLRespo
 
 
 @app.get("/integrations", response_class=HTMLResponse)
-def integrations_page(request: Request, user: dict = Depends(session_user)) -> HTMLResponse:
+def integrations_page(
+    request: Request,
+    session: Session = Depends(get_session),
+    user: dict = Depends(session_user),
+) -> HTMLResponse:
     return templates.TemplateResponse(
         request,
         "integrations.html",
         {
-            **template_context(request, user),
+            **template_context(request, user, session),
             "integration_status": integration_status(),
+        },
+    )
+
+
+@app.get("/ml-lab", response_class=HTMLResponse)
+def ml_lab_page(
+    request: Request,
+    session: Session = Depends(get_session),
+    user: dict = Depends(session_user),
+) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request,
+        "ml_lab.html",
+        {
+            **template_context(request, user, session),
+            "active_page": "ml_lab",
+            "ml_status": prototype_model_status(),
+            "lab": offline_lab_replay(),
         },
     )
 
@@ -3343,7 +4110,7 @@ def run_risk_page(
         request,
         "risk.html",
         {
-            **_risk_template_context(request, user),
+            **_risk_template_context(request, user, session),
             "result": result,
             "address": normalized_address,
             "risk_error": risk_error,
@@ -3472,6 +4239,7 @@ def api_case_evidence_manifest(
         notice,
         dispatches,
         artifact_identity(user, generated, audit_row),
+        narrative_export_rows(session, int(case.id or 0)),
     )
 
 
@@ -3525,6 +4293,7 @@ def api_case_evidence_bundle(
             notice,
             dispatches,
             artifact_identity(user, generated, audit_row),
+            narrative_export_rows(session, int(case.id or 0)),
         ),
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
@@ -3539,6 +4308,11 @@ def api_search(q: str, limit: int = 10) -> dict:
 @app.get("/api/integrations/status")
 def api_integrations_status(_user: dict = Depends(session_user)) -> dict:
     return integration_status()
+
+
+@app.get("/api/ml-lab/replay")
+def api_ml_lab_replay(_user: dict = Depends(session_user)) -> dict:
+    return offline_lab_replay()
 
 
 @app.post("/api/risk-check")

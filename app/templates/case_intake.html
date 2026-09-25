@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}New case · TRINETRA{% endblock %}
+{% block page_styles %}<link rel="stylesheet" href="/static/narrative-triage.css?v=20260921-sentiment-preview">{% endblock %}
 
 {% block breadcrumb %}
 <div class="breadcrumb" aria-label="Breadcrumb">
@@ -56,10 +57,27 @@
           <i class="particular-status-dot" aria-hidden="true"></i>
           <dt>{{ particular.label }}</dt>
           <dd>{{ particular.value }}</dd>
+          {% if particular.manual %}
+          <details class="manual-particular-editor">
+            <summary aria-label="Manually add {{ particular.label }}"><span aria-hidden="true">✎</span></summary>
+            <form method="post" action="/cases/manual-particular" class="manual-particular-form">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="ack_no" value="{{ record.ack_no }}">
+              <input type="hidden" name="field" value="{{ particular.key }}">
+              <label for="manual-{{ particular.key }}">{{ particular.manual.input_label }}</label>
+              <input id="manual-{{ particular.key }}" name="value" required maxlength="{{ particular.manual.maxlength }}" placeholder="{{ particular.manual.placeholder }}"{% if particular.key == "payment_txid" %} pattern="[a-fA-F0-9]{64}"{% endif %}>
+              <button type="submit">Verify</button>
+            </form>
+          </details>
+          {% endif %}
         </div>
         {% endfor %}
       </dl>
     </section>
+
+    {% if case and narrative_triage %}
+      {% include "_narrative_triage.html" %}
+    {% endif %}
 
     <section class="referrals-panel">
       <header>

@@ -17,6 +17,24 @@ class AllocationStep:
 
 
 @dataclass(frozen=True)
+class OrderedAllocationStep:
+    outgoing_base: int
+    balance_before: int
+    attributed_before: int
+    residual_before: int
+    numerator_base: int | None
+    result: AllocationStep
+
+
+@dataclass(frozen=True)
+class OrderedAllocationResult:
+    outgoing_total_base: int
+    initial_balance_base: int
+    steps: tuple[OrderedAllocationStep, ...]
+    remaining_attributed_base: int
+
+
+@dataclass(frozen=True)
 class FrontierCandidate:
     stable_id: str
     attributed_base: int
@@ -58,6 +76,61 @@ def allocate_proportional(
         remaining_balance_base=balance_base - outgoing_base,
         remaining_attributed_base=attributed_base - outgoing_attributed_base,
         residual_numerator=next_residual,
+    )
+
+
+def allocate_ordered_outgoing(
+    outgoing_amounts: Iterable[int],
+    *,
+    attributed_base: int,
+) -> OrderedAllocationResult:
+    amounts = tuple(outgoing_amounts)
+    outgoing_total_base = sum(amounts)
+    initial_balance_base = max(attributed_base, outgoing_total_base)
+    balance_base = initial_balance_base
+    remaining_attributed_base = attributed_base
+    residual_numerator = 0
+    steps: list[OrderedAllocationStep] = []
+
+    for outgoing_base in amounts:
+        balance_before = balance_base
+        attributed_before = remaining_attributed_base
+        residual_before = residual_numerator
+        numerator_base: int | None = None
+        if balance_before <= 0 or attributed_before <= 0:
+            result = AllocationStep(
+                outgoing_attributed_base=0,
+                remaining_balance_base=balance_before,
+                remaining_attributed_base=attributed_before,
+                residual_numerator=residual_before,
+            )
+        else:
+            numerator_base = outgoing_base * attributed_before + residual_before
+            result = allocate_proportional(
+                balance_base=balance_before,
+                attributed_base=attributed_before,
+                outgoing_base=outgoing_base,
+                residual_numerator=residual_before,
+            )
+            balance_base = result.remaining_balance_base
+            remaining_attributed_base = result.remaining_attributed_base
+            residual_numerator = result.residual_numerator
+        steps.append(
+            OrderedAllocationStep(
+                outgoing_base=outgoing_base,
+                balance_before=balance_before,
+                attributed_before=attributed_before,
+                residual_before=residual_before,
+                numerator_base=numerator_base,
+                result=result,
+            )
+        )
+
+    return OrderedAllocationResult(
+        outgoing_total_base=outgoing_total_base,
+        initial_balance_base=initial_balance_base,
+        steps=tuple(steps),
+        remaining_attributed_base=remaining_attributed_base,
     )
 
 

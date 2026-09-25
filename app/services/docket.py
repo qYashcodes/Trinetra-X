@@ -16,7 +16,7 @@ from app.models import (
     TraceSnapshot,
     VaspResponse,
 )
-from app.services.officers import visible_cases
+from app.services.officers import can_access_case, visible_cases
 from app.services.time import now_ms
 
 
@@ -36,7 +36,7 @@ def docket_state(
     timestamp_ms: int | None = None,
 ) -> dict[str, Any]:
     now = now_ms() if timestamp_ms is None else timestamp_ms
-    cases = visible_cases(session, officer_pis=officer_pis, role=role)
+    cases = _docket_cases(session, officer_pis=officer_pis, role=role)
     snapshots = _latest_by_case(session.exec(select(TraceSnapshot).order_by(TraceSnapshot.id)).all())
     findings = _latest_by_case(session.exec(select(Finding).order_by(Finding.id)).all())
     notices = _latest_by_case(session.exec(select(Notice).order_by(Notice.id)).all())
@@ -80,7 +80,18 @@ def docket_state(
             "age_rank": max(0, (now - case.updated_ts_ms) // 3_600_000),
             "active": case_id == active_case_id,
             "terminal_kind": terminal_kind,
+            "can_open": can_access_case(
+                session,
+                case_id=case_id,
+                officer_pis=officer_pis,
+                role=role,
+            ),
         }
+        row["href"] = (
+            f"/cases/{case_id}/canvas?snapshot={snapshot.id}"
+            if row["can_open"] and snapshot is not None and snapshot.id is not None
+            else "/docket"
+        )
         row["filter_groups"] = _filter_groups(row, case, snapshot, notice, record, now)
         row["search_text"] = " ".join(
             str(value or "") for value in (case.ack_no, traced_to, stage, record.current_owner_pis if record else "")
@@ -141,7 +152,13 @@ def docket_state(
         )
     return {
         "kpis": [
-            {"label": "Open dockets", "value": open_cases, "unit": "cases", "detail": "visible assigned cases", "tone": "default"},
+            {
+                "label": "Open dockets",
+                "value": open_cases,
+                "unit": "cases",
+                "detail": "supervisory queue" if role == "supervisor" else "visible assigned cases",
+                "tone": "default",
+            },
             {"label": "Value under trace", "amount_base": value_under_trace, "unit": "M USDT", "detail": f"across {len(active_trace_case_ids)} active traces", "tone": "default"},
             {"label": "Restrained to date", "amount_base": restrained_total, "unit": "M USDT", "detail": "explicit recorded VASP responses only", "tone": "success"},
             {"label": "Awaiting custodian", "value": len(awaiting_records), "unit": "notices", "detail": f"{overdue} past the acknowledgement SLA", "tone": "warning"},
@@ -156,7 +173,31 @@ def docket_state(
         "supervisor_escalated_count": sum(item["escalated"] for item in supervisor_cases),
         "total_count": len(rows),
         "attention_count": counts.get("needs_attention", 0),
+}
+
+
+def _docket_cases(session: Session, *, officer_pis: str, role: str) -> list[Case]:
+    if role != "supervisor":
+        return visible_cases(session, officer_pis=officer_pis, role=role)
+    visible_by_id = {
+        int(row.id): row
+        for row in visible_cases(session, officer_pis=officer_pis, role=role)
+        if row.id is not None
     }
+    assigned_ids = [
+        int(row.case_id)
+        for row in session.exec(select(CaseAssignment).order_by(CaseAssignment.id)).all()
+    ]
+    for case_id in assigned_ids:
+        if case_id not in visible_by_id:
+            case = session.get(Case, case_id)
+            if case is not None:
+                visible_by_id[case_id] = case
+    return sorted(
+        visible_by_id.values(),
+        key=lambda item: (item.updated_ts_ms, int(item.id or 0)),
+        reverse=True,
+    )
 
 
 def _latest_by_case(rows: list[Any]) -> dict[int, Any]:

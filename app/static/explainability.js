@@ -80,13 +80,46 @@
     dialog.querySelector("[data-explain-close]").focus();
   }
 
+  const explainContentSelector = [
+    "button",
+    "a[href]",
+    "td",
+    "th",
+    "dt",
+    "dd",
+    "span",
+    "b",
+    "strong",
+    "small",
+    "em",
+    "code",
+    "p",
+    "h1",
+    "h2",
+    "h3"
+  ].join(",");
+
+  const eventElement = (event) => event.target instanceof Element ? event.target : null;
+
+  function explainTriggerFromClick(event) {
+    const target = eventElement(event);
+    if (!target) return null;
+    const trigger = target.closest("[data-explain-target]");
+    if (!trigger) return null;
+    if (trigger.matches("button, a[href], tr, li, article")) return trigger;
+    if (target === trigger) return null;
+    const clickedContent = target.closest(explainContentSelector);
+    return clickedContent && trigger.contains(clickedContent) ? trigger : null;
+  }
+
   document.addEventListener("click", (event) => {
-    const trigger = event.target.closest("[data-explain-target]");
+    const trigger = explainTriggerFromClick(event);
     if (trigger) openExplanation(trigger.dataset.explainTarget || "methodology", trigger);
   });
 
   document.addEventListener("keydown", (event) => {
-    const trigger = event.target.closest("[data-explain-target]");
+    const target = eventElement(event);
+    const trigger = target?.closest("[data-explain-target]");
     if (!trigger || !["Enter", " "].includes(event.key) || ["BUTTON", "A"].includes(trigger.tagName)) return;
     event.preventDefault();
     openExplanation(trigger.dataset.explainTarget || "methodology", trigger);

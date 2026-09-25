@@ -6,6 +6,7 @@ import shutil
 import uuid
 from collections.abc import Iterator
 from types import SimpleNamespace
+from typing import get_type_hints
 
 import pytest
 from sqlalchemy.pool import StaticPool
@@ -25,10 +26,11 @@ from app.services.evidence_store import (
 )
 from app.services.feature_flags import feature_flags
 from app.services.live_tron_resume import defer_frontier_for_retry
-from app.services.worker import SupervisedFrontierWorker
+from app.services.worker import SupervisedFrontierWorker, _frontier_state_counts
 import app.repository as repository
 import app.services.live_tron_resume as resume_module
 from engine.adapters import tron
+from engine.contracts import NormalizedTransferRecord
 
 
 class FakeResponse:
@@ -114,6 +116,37 @@ def test_known_real_public_tron_usdt_transfer_normalises_exact_base_units() -> N
     assert tron._event_recipient(
         {"result": {"to": "0xa6eac45133bcbab02f0bf23468edfc119f0712ad"}}
     ) == raw["to"]
+
+
+def test_normalised_transfer_contract_preserves_optional_zero_and_empty_provenance() -> None:
+    raw = {
+        "transaction_id": "0" * 64,
+        "block_timestamp": 0,
+        "from": "TSource",
+        "to": "TDestination",
+        "value": "0",
+        "block_number": 0,
+        "event_index": 0,
+        "token_info": {
+            "symbol": "USDT",
+            "address": tron.TRON_MAINNET_USDT,
+            "decimals": 6,
+        },
+        "_retrieval_ts_ms": 0,
+        "_raw_sha256": "",
+        "_provider_request_ref": "",
+    }
+
+    event = tron.normalise(raw)
+
+    assert get_type_hints(tron.normalise)["return"] is NormalizedTransferRecord
+    assert event["ts_ms"] == 0
+    assert event["amount_base"] == 0
+    assert event["block"] == 0
+    assert event["event_index"] == 0
+    assert event["retrieval_ts_ms"] == 0
+    assert event["raw_sha256"] == ""
+    assert event["provider_request_ref"] == ""
 
 
 def test_every_paginated_provider_response_is_captured_and_persisted(
@@ -492,6 +525,47 @@ def _worker_engine() -> tuple[object, int]:
         session.add(item)
         session.commit()
         return engine, int(item.id)
+
+
+def test_frontier_state_counts_preserve_empty_and_mixed_states() -> None:
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+    try:
+        with Session(engine) as session:
+            assert _frontier_state_counts(session) == {
+                "queued": 0,
+                "leased": 0,
+                "deferred": 0,
+            }
+            for index, state in enumerate(
+                ("queued", "queued", "leased", "deferred", "deferred", "completed"),
+                start=1,
+            ):
+                session.add(
+                    FrontierItem(
+                        case_id=1,
+                        event_ref=f"telemetry-{index}",
+                        priority_base=1,
+                        priority_reason="telemetry-test",
+                        depth=1,
+                        state=state,
+                        created_ts_ms=1,
+                        updated_ts_ms=1,
+                    )
+                )
+            session.commit()
+
+            assert _frontier_state_counts(session) == {
+                "queued": 2,
+                "leased": 1,
+                "deferred": 2,
+            }
+    finally:
+        engine.dispose()
 
 
 def test_supervised_worker_recovers_stale_lease_and_drains_queue(

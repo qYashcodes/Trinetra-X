@@ -1,0 +1,100 @@
+{
+  "schema": "trinetra.narrative_typology/1",
+  "revision": "narrative-typology-en-v1",
+  "language": "en",
+  "taxonomy_order": [
+    "investment_scam",
+    "task_based_fraud",
+    "sextortion",
+    "ransomware",
+    "phishing",
+    "darknet_transaction",
+    "organized_cyber_enabled_financial_crime"
+  ],
+  "categories": [
+    {
+      "key": "investment_scam",
+      "label": "Investment scam indicators",
+      "required_groups": 2,
+      "direct_terms": ["investment scam", "fake investment", "fake trading platform", "crypto investment scam"],
+      "groups": {
+        "return_inducement": ["guaranteed return", "guaranteed profit", "high return", "quick profit", "passive income"],
+        "trading_presentation": ["trading platform", "investment platform", "fake profits", "profit balance", "portfolio manager"],
+        "withdrawal_obstruction": ["withdrawal fee", "unlock fee", "verification fee", "processing fee"]
+      },
+      "context_terms": ["investment", "trading", "crypto", "wallet", "deposit", "payment"]
+    },
+    {
+      "key": "task_based_fraud",
+      "label": "Task-based fraud indicators",
+      "required_groups": 2,
+      "direct_terms": ["task scam", "task fraud", "task based fraud", "task-based fraud"],
+      "groups": {
+        "task_activity": ["online task", "daily task", "rating task", "review task", "like videos", "complete orders"],
+        "commission_promise": ["task commission", "commission bonus", "earn per task", "task payment", "withdraw earnings"],
+        "recharge_demand": ["recharge balance", "unlock payment", "account upgrade", "vip level", "premium package"]
+      },
+      "context_terms": ["job", "work", "task", "commission", "payment", "money"]
+    },
+    {
+      "key": "sextortion",
+      "label": "Sextortion indicators",
+      "required_groups": 2,
+      "direct_terms": ["sextortion", "sexual extortion", "intimate image blackmail"],
+      "groups": {
+        "intimate_material": ["intimate photo", "intimate video", "nude image", "nude photo", "explicit image", "webcam recording"],
+        "disclosure_threat": ["threatened to publish", "threatened to share", "threatened to expose", "leak the photos", "send to my contacts"],
+        "payment_demand": ["blackmail payment", "ransom demand", "demanded money", "pay or publish", "pay or share"]
+      },
+      "context_terms": ["photo", "video", "message", "payment", "money", "wallet"]
+    },
+    {
+      "key": "ransomware",
+      "label": "Ransomware indicators",
+      "required_groups": 2,
+      "direct_terms": ["ransomware", "ransomware attack", "ransom note"],
+      "groups": {
+        "encryption_impact": ["files were encrypted", "files encrypted", "encrypted files", "database encrypted", "systems locked", "files inaccessible"],
+        "decryption_offer": ["decryption key", "decryptor", "restore the files", "unlock the files"],
+        "ransom_demand": ["ransom payment", "pay the ransom", "bitcoin ransom", "payment for decryption"]
+      },
+      "context_terms": ["files", "server", "network", "bitcoin", "payment", "wallet"]
+    },
+    {
+      "key": "phishing",
+      "label": "Phishing indicators",
+      "required_groups": 2,
+      "direct_terms": ["phishing", "phishing email", "phishing website", "smishing", "vishing"],
+      "groups": {
+        "impersonation": ["impersonated the bank", "impersonated support", "spoofed email", "fake security alert", "fake bank website"],
+        "credential_capture": ["credential harvesting", "stole my password", "entered my password", "entered login details", "fake login page"],
+        "malicious_delivery": ["malicious link", "phishing link", "malicious attachment", "clicked the link", "verification page"]
+      },
+      "context_terms": ["email", "message", "link", "website", "account", "payment"]
+    },
+    {
+      "key": "darknet_transaction",
+      "label": "Darknet transaction indicators",
+      "required_groups": 3,
+      "direct_terms": ["darknet transaction", "darknet market", "dark web market", "darknet marketplace"],
+      "groups": {
+        "hidden_service": ["onion service", "tor marketplace", "hidden service", "dark web vendor"],
+        "illicit_market": ["illicit marketplace", "contraband listing", "prohibited goods", "underground marketplace"],
+        "payment_obfuscation": ["darknet wallet", "anonymous payment", "coin mixer", "mixing service", "privacy coin payment"]
+      },
+      "context_terms": ["anonymous", "market", "vendor", "bitcoin", "wallet", "payment"]
+    },
+    {
+      "key": "organized_cyber_enabled_financial_crime",
+      "label": "Organized cyber-enabled financial crime indicators",
+      "required_groups": 3,
+      "direct_terms": ["organized cybercrime", "organized cyber-enabled financial crime", "cybercrime syndicate", "criminal network"],
+      "groups": {
+        "coordinated_actors": ["multiple coordinated actors", "coordinated campaign", "network of operators", "recruiter and operator"],
+        "mule_infrastructure": ["money mule network", "mule accounts", "collection wallets", "staging wallets", "wallet cluster"],
+        "laundering_operation": ["laundering proceeds", "layering transactions", "cashout network", "cross border laundering"]
+      },
+      "context_terms": ["group", "network", "wallet", "funds", "transfers", "money"]
+    }
+  ]
+}

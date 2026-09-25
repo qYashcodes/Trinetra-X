@@ -73,6 +73,18 @@
             <div><dt>Feature revision</dt><dd>{{ result.methodology.feature_revision }}</dd></div>
           </dl>
 
+          <section class="risk-ml-inline" aria-labelledby="risk-ml-inline-title">
+            <header>
+              <div><h3 id="risk-ml-inline-title">ML feature vector preview</h3><p>{{ result.ml_feature_preview.note }}</p></div>
+              <a href="/ml-lab">Open ML lab</a>
+            </header>
+            <div class="ml-vector-grid">
+              {% for row in result.ml_feature_preview.rows %}
+              <div><span>{{ row.key | replace('_', ' ') }}</span><strong>{{ row.display }}</strong><small>{{ row.meaning }}</small></div>
+              {% endfor %}
+            </div>
+          </section>
+
           <div class="risk-facts">
             {% for fact in result.facts %}
             <div><span>{{ fact.label }}</span><strong class="{{ fact.tone }}">{{ fact.value }}</strong></div>
@@ -148,6 +160,20 @@
       </div>
 
       <aside class="risk-side">
+        <section class="risk-side-card risk-ml-status">
+          <header><h2>ML model status</h2><span>{{ ml_status.status }}</span></header>
+          <dl class="ml-status-list">
+            <div><dt>Model</dt><dd>{{ ml_status.model_version }}</dd></div>
+            <div><dt>Type</dt><dd>{{ ml_status.model_type }}</dd></div>
+            <div><dt>Feature schema</dt><dd>{{ ml_status.feature_schema }}</dd></div>
+            <div><dt>Output status</dt><dd>{{ ml_status.output_status | replace('_', ' ') }}</dd></div>
+            <div><dt>Artifact</dt><dd>{{ 'present' if ml_status.artifact.present else 'missing' }}</dd></div>
+            {% if ml_status.artifact.sha256 %}
+            <div><dt>SHA-256</dt><dd><code>{{ ml_status.artifact.sha256 }}</code></dd></div>
+            {% endif %}
+          </dl>
+        </section>
+
         <section class="risk-side-card risk-linked">
           <header><h2>Dockets naming this address</h2><span>{{ result.linked|length if result else 0 }} of 37</span></header>
           {% if result and result.linked %}

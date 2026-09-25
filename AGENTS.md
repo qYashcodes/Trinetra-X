@@ -110,15 +110,22 @@ This is an investigative aid, not an accusation engine.
 
 ## Probabilities and machine learning
 
-- Probabilities are disabled. Public classification and risk results keep `score: null`,
-  `posterior: null`, `probability_enabled: false`,
-  `calibration_status: "disabled_pending_independent_labelled_data"`.
-- `app/services/review.py` enforces this. Do not add scores, posteriors, confidence percentages or
-  risk numbers to any surface.
-- `scikit-learn` is an unused dependency. Do not infer ML functionality from its presence.
-- Any future ML slice is separately versioned, trained and evaluated on independent labelled data
-  with cluster-and-time leakage controls, keeps human review, ships disabled until independently
-  calibrated, and **never learns from active investigations**.
+- ML risk scores are permitted only as a gated investigative-aid feature. They must remain disabled
+  unless a separately versioned model, dataset, feature schema, calibration report and threshold
+  policy are present and the ML scoring feature flag is explicitly enabled.
+- Public classification and risk results may populate `score`, `posterior`,
+  `probability_enabled: true` and a non-disabled `calibration_status` only when independent labelled
+  evaluation demonstrates calibration, false-positive behaviour and drift monitoring with
+  cluster-and-time leakage controls.
+- `app/services/review.py` remains the enforcement point. Probability or score claims must be
+  prohibited unless the caller supplies proof of independent calibration and the active model
+  metadata needed to audit the claim.
+- ML scores are never custody attribution, account identity, intent, participation or proof of an
+  offence. User-facing copy must label them as model outputs for prioritisation/review, show the
+  model version and calibration status, and preserve raw feature/evidence references.
+- Models must keep human review, must not learn from active investigations, and must fail closed to
+  the existing disabled/null output contract when artifacts, gates, calibration metadata or review
+  authority are missing.
 - Historical `confidence` and likelihood-ratio values inside fixture JSON are display remnants. They
   are not calibrated model output and must not be treated as such.
 

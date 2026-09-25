@@ -11,13 +11,14 @@
 {% set stop = runtime_status.stop_summary %}
 {% set provider = runtime_status.provider_evidence %}
 {% set projection = runtime_status.behavioral_projection %}
+{% set chain_family = result.chain.family if result.chain and result.chain.family else 'provider' %}
 <section class="live-trace-screen" data-live-runtime data-status-url="/api/traces/{{ snapshot.id }}/status">
   {% include "_trace_mode_banner.html" %}
 
   <header class="live-trace-heading">
     <div>
       <span>Snapshot {{ snapshot.id }} - {{ snapshot.status | labelize }}</span>
-      <h1>Live TRON fund-flow trace</h1>
+      <h1>Live {{ chain_family }} fund-flow trace</h1>
       <p class="mono">{{ case.reported_address }}</p>
     </div>
     <span class="terminal-chip {{ stop.tone }}">
@@ -213,12 +214,13 @@
   <span>Existing evidence and superseded snapshots are retained.</span>
   <div>
     <button class="trace-explain-trigger" type="button" data-explain-target="methodology">Explain trace</button>
-    <a href="/cases/{{ case.id }}/canvas?snapshot={{ snapshot.id }}">Open canvas</a>
-    {% if finding %}
-      <a href="/findings/{{ finding.id }}">View custody finding</a>
+    {% set canvas_gate = navigation_gates.get('canvas', {}) %}
+    {% if canvas_gate.get('enabled') and canvas_gate.get('href') %}
+      <a href="{{ canvas_gate.get('href') }}">Open canvas</a>
     {% else %}
-      <button type="button" disabled title="No custody finding is recorded for this live snapshot.">View custody finding</button>
+      <button type="button" disabled title="{{ canvas_gate.get('reason') or 'Available after the active trace completes.' }}">Open canvas</button>
     {% endif %}
+    <button type="button" disabled title="{{ 'Open the canvas first, then open custody findings from the canvas.' if finding else 'No custody finding is recorded for this live snapshot.' }}">View custody finding</button>
     <form method="post" action="/traces/{{ snapshot.id }}/retrace">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <button type="submit">Refresh and re-trace</button>

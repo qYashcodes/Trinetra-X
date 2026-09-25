@@ -415,7 +415,7 @@ def test_live_input_parsing_keeps_integer_units_and_bounds() -> None:
     params = parse_trace_params(
         {
             "max_depth": "7",
-            "time_window_hours": "24",
+            "time_window_hours": "10000",
             "value_floor_share": "0.005",
             "breadth_cap": "4",
             "address_budget": "120",
@@ -424,8 +424,11 @@ def test_live_input_parsing_keeps_integer_units_and_bounds() -> None:
         }
     )
     assert params.max_depth == 7
+    assert params.time_window_hours == 10000
     assert str(params.value_floor_share) == "0.005"
     assert params.include_unconfirmed is True
+    with pytest.raises(ValueError, match="10000 hours"):
+        parse_trace_params({"time_window_hours": "10001"})
     with pytest.raises(ValueError):
         parse_amount_base("1.0000001")
 
@@ -499,6 +502,7 @@ def test_live_intake_route_mode_banner_status_and_retrace(
             intake = client.get("/cases/live/new")
             assert intake.status_code == 200
             assert "LIVE PROVIDER MODE" in intake.text
+            assert 'name="time_window_hours" min="1" max="10000"' in intake.text
             token = re.search(r'name="csrf_token" value="([^"]+)"', intake.text)
             assert token
             started = client.post(

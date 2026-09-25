@@ -1,0 +1,112 @@
+{
+  "schema": "trinetra.narrative-showcase/1",
+  "revision": "narrative-showcase-en-v1",
+  "language": "en",
+  "officers": [
+    {
+      "pis": "74821",
+      "name": "R. Kulkarni",
+      "rank": "Inspector",
+      "desk": "Mumbai Cyber Cell"
+    },
+    {
+      "pis": "61207",
+      "name": "S. Deshmukh",
+      "rank": "ACP",
+      "desk": "Mumbai Cyber Cell"
+    }
+  ],
+  "cases": [
+    {
+      "key": "investment_scam",
+      "ack_no": "NCRP/2026/SHOW/INVEST",
+      "category": "complaint supplied category - investment",
+      "jurisdiction": "MH",
+      "amount_base": 12500000000,
+      "reported_address": "TShowInvest111111111111111111111111",
+      "payment_txid": "1111111111111111111111111111111111111111111111111111111111111111",
+      "accepted_typologies": ["investment_scam"],
+      "primary_typology": "investment_scam",
+      "narrative": "The complainant says a fake trading platform displayed a profit balance after deposits. The caller promised a guaranteed return and later demanded a withdrawal fee before releasing the funds.",
+      "reasoning_note": "Showcase review: suggested as investment-scam triage because the narrative contains a direct typology phrase and corroborating return, platform, and withdrawal-obstruction indicators."
+    },
+    {
+      "key": "task_based_fraud",
+      "ack_no": "NCRP/2026/SHOW/TASK",
+      "category": "complaint supplied category - online work",
+      "jurisdiction": "KA",
+      "amount_base": 3800000000,
+      "reported_address": "TShowTask111111111111111111111111111",
+      "payment_txid": "2222222222222222222222222222222222222222222222222222222222222222",
+      "accepted_typologies": ["task_based_fraud"],
+      "primary_typology": "task_based_fraud",
+      "narrative": "The victim joined an online task group to like videos and complete orders. The handler promised a commission bonus but then asked for a recharge balance and a VIP level payment to withdraw earnings.",
+      "reasoning_note": "Showcase review: suggested as task-based fraud because task activity, commission promise, and recharge-demand evidence groups all matched."
+    },
+    {
+      "key": "sextortion",
+      "ack_no": "NCRP/2026/SHOW/SEXT",
+      "category": "complaint supplied category - online blackmail",
+      "jurisdiction": "DL",
+      "amount_base": 950000000,
+      "reported_address": "TShowSext111111111111111111111111111",
+      "payment_txid": "3333333333333333333333333333333333333333333333333333333333333333",
+      "accepted_typologies": ["sextortion"],
+      "primary_typology": "sextortion",
+      "narrative": "The report describes sextortion after a webcam recording. The accused threatened to share an intimate video with contacts and demanded money to stop publication.",
+      "reasoning_note": "Showcase review: suggested as sextortion because a direct typology term matched with intimate-material, disclosure-threat, and payment-demand indicators."
+    },
+    {
+      "key": "ransomware",
+      "ack_no": "NCRP/2026/SHOW/RANSOM",
+      "category": "complaint supplied category - system incident",
+      "jurisdiction": "GJ",
+      "amount_base": 27000000000,
+      "reported_address": "TShowRansom111111111111111111111111",
+      "payment_txid": "4444444444444444444444444444444444444444444444444444444444444444",
+      "accepted_typologies": ["ransomware"],
+      "primary_typology": "ransomware",
+      "narrative": "The office reported a ransomware attack. Several files were encrypted, a ransom note demanded a bitcoin ransom, and the note offered a decryption key after payment.",
+      "reasoning_note": "Showcase review: suggested as ransomware because the direct term matched and the narrative includes encryption impact, ransom demand, and decryption-offer indicators."
+    },
+    {
+      "key": "phishing",
+      "ack_no": "NCRP/2026/SHOW/PHISH",
+      "category": "complaint supplied category - account access",
+      "jurisdiction": "MH",
+      "amount_base": 2200000000,
+      "reported_address": "TShowPhish1111111111111111111111111",
+      "payment_txid": "5555555555555555555555555555555555555555555555555555555555555555",
+      "accepted_typologies": ["phishing"],
+      "primary_typology": "phishing",
+      "narrative": "The complainant received a phishing email with a fake security alert. The link opened a fake login page, and the complainant entered login details before funds moved.",
+      "reasoning_note": "Showcase review: suggested as phishing because the direct term matched with impersonation, malicious-delivery, and credential-capture indicators."
+    },
+    {
+      "key": "darknet_transaction",
+      "ack_no": "NCRP/2026/SHOW/DARKNET",
+      "category": "complaint supplied category - online marketplace",
+      "jurisdiction": "WB",
+      "amount_base": 6400000000,
+      "reported_address": "TShowDarknet11111111111111111111111",
+      "payment_txid": "6666666666666666666666666666666666666666666666666666666666666666",
+      "accepted_typologies": ["darknet_transaction"],
+      "primary_typology": "darknet_transaction",
+      "narrative": "The complaint refers to a darknet market listing. The buyer used an onion service to reach a dark web vendor offering prohibited goods and was instructed to make an anonymous payment through a mixing service.",
+      "reasoning_note": "Showcase review: suggested as darknet-transaction triage because a direct darknet-market term matched and hidden-service, illicit-market, and payment-obfuscation groups are present."
+    },
+    {
+      "key": "organized_cyber_enabled_financial_crime",
+      "ack_no": "NCRP/2026/SHOW/ORG",
+      "category": "complaint supplied category - coordinated fraud",
+      "jurisdiction": "TN",
+      "amount_base": 49000000000,
+      "reported_address": "TShowOrg1111111111111111111111111111",
+      "payment_txid": "7777777777777777777777777777777777777777777777777777777777777777",
+      "accepted_typologies": ["organized_cyber_enabled_financial_crime"],
+      "primary_typology": "organized_cyber_enabled_financial_crime",
+      "narrative": "The report describes an organized cybercrime network with a recruiter and operator directing victims. Funds moved through mule accounts, collection wallets, and layering transactions before a cashout network.",
+      "reasoning_note": "Showcase review: suggested as organized cyber-enabled financial crime because a direct network term matched with coordinated-actors, mule-infrastructure, and laundering-operation groups."
+    }
+  ]
+}

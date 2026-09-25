@@ -5,7 +5,7 @@ import threading
 import uuid
 from dataclasses import asdict, dataclass
 
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, select
 
@@ -41,6 +41,7 @@ class WorkerTelemetry:
 
 _STATUS_LOCK = threading.Lock()
 _STATUS = WorkerTelemetry()
+_FRONTIER_TELEMETRY_STATES = ("queued", "leased", "deferred")
 
 
 def frontier_worker_status() -> dict:
@@ -52,6 +53,18 @@ def _replace_status(status: WorkerTelemetry) -> None:
     global _STATUS
     with _STATUS_LOCK:
         _STATUS = status
+
+
+def _frontier_state_counts(session: Session) -> dict[str, int]:
+    counts = {state: 0 for state in _FRONTIER_TELEMETRY_STATES}
+    rows = session.exec(
+        select(FrontierItem.state, func.count(FrontierItem.id))
+        .where(FrontierItem.state.in_(_FRONTIER_TELEMETRY_STATES))
+        .group_by(FrontierItem.state)
+    ).all()
+    for state, count in rows:
+        counts[str(state)] = int(count)
+    return counts
 
 
 class SupervisedFrontierWorker:
@@ -186,14 +199,7 @@ class SupervisedFrontierWorker:
                 last_error_kind = exc.__class__.__name__
 
         with Session(self.engine) as session:
-            state_counts = {
-                state: len(
-                    session.exec(
-                        select(FrontierItem.id).where(FrontierItem.state == state)
-                    ).all()
-                )
-                for state in ("queued", "leased", "deferred")
-            }
+            state_counts = _frontier_state_counts(session)
 
         self._telemetry.last_cycle_ts_ms = now_ms()
         self._telemetry.cycles += 1

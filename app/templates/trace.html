@@ -3,10 +3,10 @@
 {% block body_class %}trace-page{% endblock %}
 {% block page_styles %}
   <link rel="stylesheet" href="/static/workspace-shell.css">
-  <link rel="stylesheet" href="/static/trace.css">
+  <link rel="stylesheet" href="/static/trace.css?v=20260921-hop-replay">
   <link rel="stylesheet" href="/static/explainability.css">
 {% endblock %}
-{% block page_scripts %}<script defer src="/static/trace.js"></script><script defer src="/static/explainability.js"></script>{% endblock %}
+{% block page_scripts %}<script defer src="/static/trace.js?v=20260921-hop-replay"></script><script defer src="/static/explainability.js"></script>{% endblock %}
 
 {% block authenticated %}
 {% set snapshot_result = snapshot.result_json if snapshot else {} %}
@@ -14,6 +14,10 @@
 {% set terminal = snapshot_result.get('terminal', demo.terminal) %}
 {% set snapshot_asset = snapshot_result.get('asset', demo.case.asset) %}
 {% set stats = snapshot_result.get('stats', {}) %}
+{% set trace_mode = snapshot_result.get('engine', {}).get('mode', 'fixture') %}
+{% set recorded_elapsed_s = ((snapshot.closed_ts_ms - snapshot.started_ts_ms) // 1000 if snapshot and snapshot.closed_ts_ms is not none else 0) %}
+{% set final_duration_s = 10 if trace_mode == 'fixture' and snapshot and snapshot.status == 'complete' else recorded_elapsed_s %}
+{% set display_transfers = (trace_hops | length) if trace_mode == 'fixture' else stats.get('transfers_read', trace_hops | length) %}
 {% set terminal_only = snapshot and (trace_hops | length == 0) %}
 {% set has_finding = finding is not none %}
 <div
@@ -31,10 +35,12 @@
   data-terminal-amount="{{ (terminal.amount_credited_base | default(0)) | amount }}"
   data-custodian-name="{{ terminal.custodian_key if has_finding and terminal.custodian_key else '' }}"
   data-event-count="{{ events | length }}"
+  data-trace-mode="{{ trace_mode }}"
   data-final-addresses="{{ stats.get('addresses_visited', trace_hops | length) }}"
-  data-final-transfers="{{ stats.get('transfers_read', 0) }}"
+  data-final-transfers="{{ display_transfers }}"
   data-final-branches="{{ stats.get('branches_parked', snapshot_result.get('parked', []) | length) }}"
   data-final-retained="{{ stats.get('retained_share_bp', 0) | pctbp }}"
+  data-final-duration-seconds="{{ final_duration_s }}"
   data-started-ts="{{ snapshot.started_ts_ms }}"
   data-closed-ts="{{ snapshot.closed_ts_ms if snapshot.closed_ts_ms is not none else '' }}"
   data-stream-url="/api/traces/{{ snapshot.id }}/stream"
@@ -51,7 +57,7 @@
         <span>Amount traced</span>
         <b class="mono">{{ case.amount_reported_base | amount }}</b>
       </div>
-      <div class="trace-run-state" data-run-state><i></i><span>Preparing trace</span></div>
+      <button class="trace-run-state" type="button" data-run-state disabled aria-live="polite"><i></i><span>Trace under effect</span></button>
       <div class="trace-top-spacer"></div>
       <button class="trace-top-button" type="button" data-trace-pause>Pause</button>
       <button class="trace-top-button" type="button" data-trace-restart>Restart</button>
@@ -94,23 +100,18 @@
         <section class="trace-live-hero">
           <div class="trace-heading-row">
             <div>
-              <h1 data-trace-heading>Following the funds</h1>
-              <p data-trace-subheading>Each hop is written to the case record as it resolves. The graph builds in parallel.</p>
+              <h1 data-trace-heading>Active trace</h1>
+              <p data-trace-subheading>Hops are written to the case record as they resolve.</p>
             </div>
-            <div class="trace-progress-copy"><b data-progress-stage>Preparing trace</b><span class="mono"><em data-elapsed>00:00</em> elapsed</span></div>
+            <div class="trace-runtime-panel" aria-label="Trace runtime">
+              <span>Status</span>
+              <b data-work-heading>Trace under effect</b>
+              <em class="mono"><strong data-elapsed>00:00:00</strong> elapsed</em>
+            </div>
           </div>
-          <div class="trace-progress-track" aria-label="Trace progress" role="progressbar">
-            <i class="trace-progress-fill"></i><i class="trace-progress-scan"></i>
-          </div>
-          <div class="trace-worker">
-            <svg class="trace-worker-mark" viewBox="0 0 72 72" aria-hidden="true">
-              <circle cx="36" cy="36" r="34" fill="#f7f9fc" stroke="#12325e"/>
-              <path d="M36 10 58 22v28L36 62 14 50V22z" fill="none" stroke="#12325e" stroke-width="1.2"/>
-              <path d="M36 18 52 27v18l-16 9-16-9V27z" fill="#eef4fc" stroke="#12325e" stroke-width="1.6"/>
-              <path d="M23 36c4.4-6 8.6-8.3 13-8.3S44.7 30 49 36c-4.3 6-8.7 8.3-13 8.3S27.4 42 23 36z" fill="#fff" stroke="#12325e" stroke-width="1.5"/>
-              <circle cx="36" cy="36" r="6.2" fill="#12325e"/><circle cx="36" cy="36" r="2.3" fill="#fff"/>
-            </svg>
-            <div><strong data-work-heading>Preparing trace</strong><span>Nodes appear on the canvas as each hop resolves.</span></div>
+          <div class="trace-work-card">
+            <span>Current operation</span>
+            <strong class="mono" data-work-line>Waiting for first hop</strong>
           </div>
         </section>
 
@@ -131,7 +132,7 @@
                 <td class="mono">--</td><td><i class="amber"></i><span>{{ terminal.kind | labelize }}</span></td><td class="mono">--<br>{{ snapshot_asset.symbol }}</td><td class="mono">--</td><td class="mono">--</td><td class="amber-text">{{ terminal.note | default('Trace closed without custody evidence.') }}</td>
               </tr>
               {% endif %}
-              <tr class="trace-work-row"><td colspan="6"><i></i><span class="mono" data-work-line>expanding outbound set at hop 1 — 3 counterparties</span></td></tr>
+              <tr class="trace-work-row"><td colspan="6"><i></i><span class="mono" data-work-table-line>Waiting for first hop</span></td></tr>
             </tbody>
           </table>
           <p class="trace-complete-sr sr-only">Live trace complete</p>
@@ -141,8 +142,8 @@
       <aside class="trace-findings" aria-label="Findings so far">
         <h1>Findings so far</h1>
         <dl class="trace-stats" data-explain-target="methodology" role="button" tabindex="0">
-          <div><dt>Addresses visited</dt><dd class="mono" data-stat-addresses>3</dd></div>
-          <div><dt>Transfers read</dt><dd class="mono" data-stat-transfers>11</dd></div>
+          <div><dt>Addresses visited</dt><dd class="mono" data-stat-addresses>0</dd></div>
+          <div><dt>Transfers read</dt><dd class="mono" data-stat-transfers>0</dd></div>
           <div><dt>Value retained</dt><dd class="mono" data-stat-retained>—</dd></div>
           <div><dt>Branches parked</dt><dd class="mono" data-stat-branches>0</dd></div>
         </dl>
@@ -179,8 +180,8 @@
     <p><i></i><span data-outcome-copy>Findings are provisional until the traversal closes. Nothing is dispatched from this screen.</span></p>
     <div>
       <button class="trace-action secondary" type="button" data-explain-target="methodology">Explain trace</button>
-      <a class="trace-action secondary" href="/cases/{{ case.id }}/canvas?snapshot={{ snapshot.id }}">Open canvas</a>
-      {% if finding %}<a class="trace-action primary" data-finding-action href="/findings/{{ finding.id }}" aria-disabled="true" tabindex="-1">View custody finding</a>{% else %}<span class="trace-action primary disabled" data-finding-action>View custody finding</span>{% endif %}
+      <a class="trace-action secondary" data-canvas-action href="/cases/{{ case.id }}/canvas?snapshot={{ snapshot.id }}" aria-disabled="true" tabindex="-1">Open canvas</a>
+      <span class="trace-action primary disabled" data-finding-action title="{{ 'Open the canvas first, then open custody findings from the canvas.' if finding else 'No custody finding is recorded for this snapshot.' }}">View custody finding</span>
     </div>
   </footer>
 

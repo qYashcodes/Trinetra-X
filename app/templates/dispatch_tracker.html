@@ -17,6 +17,17 @@
         <h1>Dispatch tracker</h1>
         <p>Manual officer updates for VASP notice follow-up. Dispatch is a pending state; it does not confirm restraint.</p>
       </div>
+      <div class="tracker-role-card" data-tracker-role="{{ user.role }}">
+        {% if user.role == 'supervisor' %}
+        <span>ACP oversight view</span>
+        <b>Escalation and SLA supervision</b>
+        <small>Assign next owners for escalations and review cases under ACP supervision.</small>
+        {% else %}
+        <span>IO workqueue view</span>
+        <b>Status update desk</b>
+        <small>Record acknowledgements, responses and officer notes for assigned notices.</small>
+        {% endif %}
+      </div>
       <dl class="tracker-counts" aria-label="Tracker counts">
         <div><dt>Total</dt><dd class="mono">{{ counts.total }}</dd></div>
         <div><dt>Pending</dt><dd class="mono">{{ counts.pending }}</dd></div>
@@ -87,6 +98,12 @@
               {% if row.last_note %}<em>{{ row.last_note }}</em>{% endif %}
             </td>
             <td data-label="Manual update">
+              {% if user.role == 'supervisor' %}
+              <div class="tracker-role-note acp">
+                <b>ACP oversight controls</b>
+                <span>Status updates remain with the assigned IO. Use escalation only when a next owner and reason are recorded.</span>
+              </div>
+              {% else %}
               <form class="tracker-update-form" method="post" action="/dispatch-tracker/{{ row.notice_id }}/status">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <select name="tracker_status" aria-label="New status for {{ row.notice_no }}">
@@ -103,12 +120,20 @@
                 <input name="note" placeholder="Officer note" value="">
                 <button type="submit">Save</button>
               </form>
+              {% endif %}
+              {% if user.role == 'supervisor' or not row.dispatch_record %}
               <form class="tracker-escalate-form" method="post" action="/dispatch-tracker/{{ row.notice_id }}/escalate">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <input name="note" placeholder="Required escalation reason"{{ ' required' if row.dispatch_record else '' }}>
                 {% if row.dispatch_record %}<select name="next_owner_pis" aria-label="Next escalation owner" required><option value="">Select next officer</option>{% for officer in officers if officer.active %}<option value="{{ officer.pis }}">{{ officer.rank }} {{ officer.name }} · {{ officer.pis }}</option>{% endfor %}</select>{% endif %}
                 <button type="submit">Escalate</button>
               </form>
+              {% else %}
+              <div class="tracker-role-note io">
+                <b>Escalation owner assignment is ACP-only</b>
+                <span>Switch to ACP to assign the next escalation owner.</span>
+              </div>
+              {% endif %}
               <details>
                 <summary>History</summary>
                 {% for event in row.events %}

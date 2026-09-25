@@ -207,6 +207,7 @@
   .canvas-strategy-title { width: 100%; flex-basis: 100%; }
   .strategy-select-wrap { width: min(100%, 260px); flex-basis: min(100%, 260px); }
   .canvas-workspace .strategy-select { width: 100%; }
+  .canvas-strategy-actions { min-width: 0; width: 100%; justify-content: flex-start; flex-wrap: wrap; margin-left: 0; }
   .canvas-main-row, .canvas-left-column { min-width: 0; width: 100%; }
   .canvas-footer { overflow-x: auto; }
   .canvas-bottom-card { height: auto; min-height: 177px; }
@@ -242,6 +243,53 @@
   cursor: pointer;
 }
 .canvas-workspace .strategy-explain:hover { background: #f1f4f8; }
+.canvas-strategy-actions {
+  flex: 1 1 auto;
+  min-width: 280px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-left: auto;
+}
+.canvas-strategy-actions form {
+  margin: 0;
+}
+.canvas-workspace .strategy-action,
+.canvas-workspace a.strategy-action {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 13px;
+  border: 1px solid #12325e;
+  border-radius: 7px;
+  background: #fff;
+  color: #12325e;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.canvas-workspace .strategy-action:hover,
+.canvas-workspace a.strategy-action:hover { background: #f1f4f8; }
+.canvas-workspace .strategy-action-primary,
+.canvas-workspace a.strategy-action-primary {
+  background: #12325e;
+  color: #fff;
+}
+.canvas-workspace .strategy-action-primary:hover,
+.canvas-workspace a.strategy-action-primary:hover {
+  background: #0b1e39;
+  color: #fff;
+}
+.canvas-workspace .strategy-action:disabled {
+  border-color: #cfd7e3;
+  background: #eef1f6;
+  color: #7b8798;
+  cursor: not-allowed;
+}
 .strategy-fact {
   min-height: 38px;
   display: flex;
@@ -339,10 +387,10 @@
   min-height: 0;
   overflow: auto;
   padding: 8px 12px 10px;
-  scrollbar-width: none;
+  scrollbar-width: auto;
 }
 .canvas-graph-viewport::-webkit-scrollbar,
-.detail-scroll::-webkit-scrollbar { display: none; }
+.detail-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
 .canvas-flow-scale {
   width: 1244px;
   height: 286px;
@@ -850,7 +898,7 @@
   flex-direction: column;
   gap: 14px;
   padding: 12px 16px 16px;
-  scrollbar-width: none;
+  scrollbar-width: auto;
   animation: canvas-fade .18s ease both;
 }
 .detail-kv { display: flex; flex-direction: column; }

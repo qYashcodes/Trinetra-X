@@ -6,19 +6,62 @@
   const parameters = root.querySelector("[data-parameter-form]");
   const autosaveState = root.querySelector("[data-autosave-state]");
   let parametersDirty = false;
-  parameters?.addEventListener("input", () => { parametersDirty = true; if (autosaveState) autosaveState.textContent = "Unsaved changes"; });
+  const markParametersDirty = () => {
+    parametersDirty = true;
+    if (autosaveState) autosaveState.textContent = "Unsaved changes";
+  };
+  parameters?.addEventListener("input", markParametersDirty);
+  parameters?.addEventListener("change", markParametersDirty);
+  root.querySelectorAll('[form="workflow-parameter-form"]').forEach((control) => {
+    control.addEventListener("input", markParametersDirty);
+    control.addEventListener("change", markParametersDirty);
+  });
+  async function saveParameters() {
+    if (!parameters) return true;
+    const response = await fetch(parameters.action, { method: "POST", body: new FormData(parameters), credentials: "same-origin" });
+    if (!response.ok) throw new Error(String(response.status));
+    parametersDirty = false;
+    if (autosaveState) autosaveState.textContent = "Saved";
+    return true;
+  }
   const autosave = window.setInterval(async () => {
     if (!parametersDirty || !parameters) return;
     try {
-      const response = await fetch(parameters.action, { method: "POST", body: new FormData(parameters), credentials: "same-origin" });
-      if (!response.ok) throw new Error(String(response.status));
-      parametersDirty = false;
+      await saveParameters();
       if (autosaveState) autosaveState.textContent = "Autosaved";
     } catch (_error) {
-      if (autosaveState) autosaveState.textContent = "Autosave failed — use Save parameters";
+      if (autosaveState) autosaveState.textContent = "Autosave failed - use Save parameters";
     }
   }, 20000);
   window.addEventListener("pagehide", () => window.clearInterval(autosave), { once: true });
+
+  const attachmentForm = root.querySelector("[data-attachment-form]");
+  const fileInput = root.querySelector("[data-file-input]");
+  const attachTrigger = root.querySelector("[data-attach-trigger]");
+  const fileLabel = root.querySelector("[data-file-label]");
+  attachTrigger?.addEventListener("click", () => fileInput?.click());
+  fileInput?.addEventListener("change", () => {
+    const file = fileInput.files?.[0];
+    if (fileLabel) fileLabel.textContent = file ? `Attaching ${file.name}` : "Select a document";
+    if (file && attachmentForm) attachmentForm.submit();
+  });
+
+  const generateForm = root.querySelector("[data-generate-form]");
+  const draftButton = root.querySelector("[data-draft-notice]");
+  const draftState = root.querySelector("[data-draft-state]");
+  draftButton?.addEventListener("click", async () => {
+    if (!generateForm) return;
+    draftButton.disabled = true;
+    if (draftState) draftState.textContent = "Saving selected details...";
+    try {
+      await saveParameters();
+      if (draftState) draftState.textContent = "Drafting freeze notice...";
+      generateForm.submit();
+    } catch (_error) {
+      draftButton.disabled = false;
+      if (draftState) draftState.textContent = "Save failed. Check required details and try again.";
+    }
+  });
 
   const preview = root.querySelector("[data-preview-scroll]");
   const previewComplete = root.querySelector("[data-preview-complete]");

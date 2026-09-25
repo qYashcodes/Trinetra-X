@@ -70,8 +70,8 @@ def parse_trace_params(values: dict[str, Any]) -> TraceParams:
     strategy = str(values.get("strategy") or "dominant_fund_flow")
     if not 1 <= max_depth <= 10:
         raise LiveTraceInputError("Hop depth must be between 1 and 10.")
-    if not 1 <= time_window_hours <= 168:
-        raise LiveTraceInputError("Time window must be between 1 and 168 hours.")
+    if not 1 <= time_window_hours <= 10000:
+        raise LiveTraceInputError("Time window must be between 1 and 10000 hours.")
     if value_floor_share < 0 or value_floor_share > Decimal("1"):
         raise LiveTraceInputError("Value floor share must be between 0 and 1.")
     if not 1 <= breadth_cap <= 10:

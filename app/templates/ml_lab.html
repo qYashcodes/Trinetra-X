@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}ML lab · TRINETRA{% endblock %}
+{% block body_class %}risk-page{% endblock %}
+{% block page_styles %}
+<link rel="stylesheet" href="/static/workspace-shell.css">
+<link rel="stylesheet" href="/static/risk.css">
+{% endblock %}
+
+{% block authenticated %}
+{% set active_page = "ml_lab" %}
+<div class="risk-app">
+  {% include "_workspace_nav.html" %}
+
+  <div class="risk-workspace">
+    <header class="risk-toolbar">
+      <div class="risk-location">
+        <span>ML lab</span><i aria-hidden="true"></i><strong>Offline prototype replay</strong>
+      </div>
+      <div class="risk-dataset">
+        <span class="risk-revision"><i aria-hidden="true"></i>{{ lab.model_version }}</span>
+        <span class="risk-indexed">{{ lab.model_type }}</span>
+      </div>
+    </header>
+
+    <main class="risk-main ml-lab-main">
+      <div class="risk-primary">
+        <section class="risk-query-card ml-lab-hero">
+          <h1>Embedded ML workflow</h1>
+          <p>This lab page demonstrates that the wallet-risk model is wired into the prototype. Replay values are fixed offline examples and are not used by live lookups, notices or case decisions.</p>
+          <div class="ml-lab-actions">
+            <a class="button" href="/risk-check">Open risk check</a>
+            <a class="button ghost-button" href="/api/ml-lab/replay">View replay JSON</a>
+          </div>
+        </section>
+
+        <section class="risk-result-card unknown ml-lab-replay" aria-labelledby="ml-lab-replay-title">
+          <div class="risk-result-head">
+            <div class="risk-verdict">
+              <span class="risk-band"><strong>Offline replay</strong><span>Prototype demonstration</span></span>
+              <h2 id="ml-lab-replay-title">Model output is visible only in the lab</h2>
+            </div>
+            <div class="risk-score"><strong>{{ lab.samples|length }}</strong><span>demo samples</span></div>
+          </div>
+          <p class="risk-verdict-note">{{ lab.disclaimer }}</p>
+
+          <div class="ml-lab-samples">
+            {% for sample in lab.samples %}
+            <article>
+              <header>
+                <span>{{ sample.address_label }}</span>
+                <strong>{{ sample.lab_score_bp }}</strong>
+              </header>
+              <h3>{{ sample.label }}</h3>
+              <p>{{ sample.pattern_label }}</p>
+              <dl>
+                {% for feature in sample.top_features %}
+                <div><dt>{{ feature.name | replace('_', ' ') }}</dt><dd><code>{{ feature.value }}</code></dd></div>
+                {% endfor %}
+              </dl>
+            </article>
+            {% endfor %}
+          </div>
+        </section>
+      </div>
+
+      <aside class="risk-side">
+        <section class="risk-side-card risk-ml-status">
+          <header><h2>ML model status</h2><span>{{ ml_status.status }}</span></header>
+          <dl class="ml-status-list">
+            <div><dt>Model</dt><dd>{{ ml_status.model_version }}</dd></div>
+            <div><dt>Type</dt><dd>{{ ml_status.model_type }}</dd></div>
+            <div><dt>Feature schema</dt><dd>{{ ml_status.feature_schema }}</dd></div>
+            <div><dt>Output status</dt><dd>{{ ml_status.output_status | replace('_', ' ') }}</dd></div>
+            <div><dt>Artifact</dt><dd>{{ 'present' if ml_status.artifact.present else 'missing' }}</dd></div>
+            {% if ml_status.artifact.sha256 %}
+            <div><dt>SHA-256</dt><dd><code>{{ ml_status.artifact.sha256 }}</code></dd></div>
+            {% endif %}
+          </dl>
+        </section>
+
+        <section class="risk-side-card risk-ml-status">
+          <header><h2>Readiness checklist</h2><span>prototype</span></header>
+          <div class="ml-checklist">
+            {% for item in ml_status.checklist %}
+            <div class="{{ item.status }}"><i aria-hidden="true"></i><span>{{ item.label }}</span><b>{{ item.status | replace('_', ' ') }}</b></div>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="risk-use-card">
+          <h2>Boundary</h2>
+          <p>The lab score is a fixed demonstration value. Public risk results remain evidence-band based unless independent calibration and review gates are completed.</p>
+        </section>
+      </aside>
+    </main>
+  </div>
+</div>
+{% endblock %}

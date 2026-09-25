@@ -52,6 +52,7 @@ def test_main_screens_use_local_resolvable_assets(client: TestClient) -> None:
         "/notices",
         "/risk-check",
         "/integrations",
+        "/dispatch-tracker",
     ]
     all_assets: set[str] = set()
     for route in routes:
@@ -101,6 +102,41 @@ def test_accessibility_hooks_for_canvas_and_explanation(client: TestClient) -> N
     assert trace.status_code == 200
     assert 'aria-controls="trace-explain-content"' in trace.text
     assert 'role="tabpanel" aria-labelledby="trace-explain-tab-investigator"' in trace.text
+
+
+def test_workspace_tabs_keep_scrollable_layout() -> None:
+    app_css = Path("app/static/app.css").read_text()
+    workspace_css = Path("app/static/workspace-shell.css").read_text()
+    trace_css = Path("app/static/trace.css").read_text()
+    notice_css = Path("app/static/notice.css").read_text()
+    finding_css = Path("app/static/finding.css").read_text()
+    canvas_css = Path("app/static/canvas.css").read_text()
+    dispatch_css = Path("app/static/dispatch-tracker.css").read_text()
+
+    assert ".content-shell { min-width: 0; min-height: 0; padding: 14px 23px 0; overflow: auto;" in app_css
+    assert ".docket-page .content-shell {\n  padding: 0;\n  overflow: auto;" in app_css
+    assert ".docket-screen {\n  height: auto;\n  min-height: 100%;" in app_css
+    assert ".docket-table-wrap { min-height: 0; overflow: auto; }" in app_css
+
+    assert "scrollbar-gutter: stable;" in app_css
+    assert ".nav-rail nav {\n  flex: 1 1 auto;\n  min-height: 0;" in app_css
+    assert ".workspace-nav-links {\n  flex: 1 1 auto;\n  min-height: 0;" in workspace_css
+
+    assert ".trace-live {\n  min-width: 0;\n  min-height: 0;\n  overflow-x: hidden;\n  overflow-y: auto;" in trace_css
+    assert ".trace-table-wrap {\n  height: auto;\n  flex: 1;\n  min-height: 0;\n  overflow: auto;" in trace_css
+
+    assert "scrollbar-width:auto" in notice_css
+    assert "scrollbar-width:auto" in finding_css
+    assert "scrollbar-width: auto;" in canvas_css
+    assert ".dispatch-tracker-shell {\n  min-width: 0;\n  min-height: 0;" in dispatch_css
+
+
+def test_public_pages_clear_cached_workspace_context() -> None:
+    app_js = Path("app/static/app.js").read_text()
+
+    assert 'window.sessionStorage.removeItem("trinetraWorkingContext")' in app_js
+    assert 'document.body?.classList.contains("authenticated-session")' in app_js
+    assert "Public pages must not retain the previous officer's workspace context." in app_js
 
 
 def test_supervisor_mode_has_visible_role_banner(client: TestClient) -> None:

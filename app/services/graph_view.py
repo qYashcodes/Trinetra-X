@@ -4,6 +4,8 @@ from collections.abc import Callable, Mapping
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from app.services.ml_model import disabled_wallet_model_status, graph_model_metadata
+
 
 GRAPH_VIEW_SCHEMA = "trinetra.omega_graph/1"
 BalanceLookup = Callable[
@@ -21,6 +23,8 @@ def omega_graph_payload(
     """Map a TRINETRA trace snapshot into the Omega static SVG tree contract."""
     result = dict(snapshot or {})
     asset = _asset(result, case)
+    model_status = _model_status(result)
+    model_metadata = graph_model_metadata(model_status)
     case_data = dict(result.get("case") or {})
     seed_match = dict(result.get("seed_match") or {})
     hops = [dict(item) for item in result.get("hops") or []]
@@ -66,6 +70,7 @@ def omega_graph_payload(
                 case_data.get("payment_ts_ms"),
                 getattr(case, "payment_ts_ms", None),
             ),
+            "ml_model": model_metadata,
         },
     )
     root["received_transactions"] = [
@@ -100,6 +105,7 @@ def omega_graph_payload(
                     "frontier_state": hop.get("frontier_state"),
                     "event_ref": hop.get("event_ref"),
                     "txid": _first_txid(hop) or current["metadata"].get("txid"),
+                    "ml_model": model_metadata,
                     **amount_metadata,
                 }
             )
@@ -122,6 +128,7 @@ def omega_graph_payload(
                 "source_address": hop.get("source_address") or previous_address,
                 "class": hop.get("class") or hop.get("candidate"),
                 "note": hop.get("note"),
+                "ml_model": model_metadata,
                 **amount_metadata,
             },
         )
@@ -137,6 +144,7 @@ def omega_graph_payload(
                 "frontier_state": hop.get("frontier_state"),
                 "event_ref": hop.get("event_ref"),
                 "ts_ms": hop.get("ts_ms"),
+                "ml_model": model_metadata,
                 **amount_metadata,
             },
             branch_reasons=_branch_reasons(hop),
@@ -182,6 +190,7 @@ def omega_graph_payload(
                 "ts_ms": branch.get("ts_ms"),
                 "source_address": source,
                 "reason": branch.get("deferral_reason") or branch.get("reason"),
+                "ml_model": model_metadata,
                 **amount_metadata,
             },
         )
@@ -198,6 +207,7 @@ def omega_graph_payload(
                     "frontier_state": branch.get("frontier_state") or "deferred",
                     "event_ref": branch.get("event_ref") or branch.get("branch_id"),
                     "ts_ms": branch.get("ts_ms"),
+                    "ml_model": model_metadata,
                     **amount_metadata,
                 },
                 branch_reasons=_branch_reasons(branch),
@@ -206,13 +216,22 @@ def omega_graph_payload(
         )
         nodes_by_address[_address_key(destination)] = child
 
-    _attach_terminal(root, current, nodes_by_address, terminal, asset, balances)
+    _attach_terminal(
+        root,
+        current,
+        nodes_by_address,
+        terminal,
+        asset,
+        balances,
+        model_metadata=model_metadata,
+    )
     return {
         "schema": GRAPH_VIEW_SCHEMA,
         "title": "Transaction flow",
         "subtitle": "SVG graph adapted from Akshat's Omega graph for TRINETRA sealed snapshots.",
         "asset": asset,
         "mode": str((result.get("engine") or {}).get("mode") or "fixture"),
+        "ml_model": model_status,
         "tree": root,
     }
 
@@ -224,6 +243,7 @@ def _attach_terminal(
     terminal: dict[str, Any],
     asset: dict[str, Any],
     balances: Mapping[str, dict[str, Any]],
+    model_metadata: dict[str, Any],
 ) -> None:
     hot_wallet = terminal.get("hot_wallet")
     deposit_address = terminal.get("deposit_address")
@@ -249,6 +269,7 @@ def _attach_terminal(
             "note": terminal.get("note"),
             "deposit_address": deposit_address,
             "trace_role": "terminal metadata only",
+            "ml_model": model_metadata,
         },
     )
     parent.setdefault("children", []).append(
@@ -263,6 +284,7 @@ def _attach_terminal(
                 "kind": "terminal",
                 "terminal_kind": terminal.get("kind"),
                 "custodian_key": terminal.get("custodian_key"),
+                "ml_model": model_metadata,
             },
             branch_reasons=[
                 "Terminal metadata is displayed separately from the deposit address.",
@@ -280,6 +302,30 @@ def _asset(snapshot: dict[str, Any], case: Any | None) -> dict[str, Any]:
         "decimals": int(data.get("decimals") or getattr(case, "asset_decimals", None) or 6),
         "contract": data.get("contract") or data.get("contract_address"),
     }
+
+
+def _model_status(snapshot: dict[str, Any]) -> dict[str, Any]:
+    model_status = snapshot.get("ml_model")
+    if isinstance(model_status, dict):
+        safe_status = disabled_wallet_model_status(
+            feature_revision=model_status.get("feature_revision")
+        )
+        safe_status.update(
+            {
+                "status": "disabled",
+                "model_version": model_status.get("model_version")
+                or safe_status["model_version"],
+                "model_type": model_status.get("model_type")
+                or safe_status["model_type"],
+                "probability_enabled": False,
+                "calibration_status": (
+                    model_status.get("calibration_status")
+                    or safe_status["calibration_status"]
+                ),
+            }
+        )
+        return safe_status
+    return disabled_wallet_model_status()
 
 
 def _transfer_amounts(item: dict[str, Any]) -> tuple[Any, Any]:

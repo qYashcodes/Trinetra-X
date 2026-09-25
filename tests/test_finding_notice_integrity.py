@@ -10,7 +10,17 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 import app.main as main_module
 from app.main import app
-from app.models import Case, CaseStage, Dispatch, Finding, Notice, NoticeTrackerEvent, TraceSnapshot
+from app.models import (
+    Case,
+    CaseStage,
+    Dispatch,
+    Finding,
+    Notice,
+    NoticeDraft,
+    NoticeTrackerEvent,
+    NoticeVersion,
+    TraceSnapshot,
+)
 from app.repository import finding_review_specs, initial_finding_review_checks, prepare_notice
 
 
@@ -87,7 +97,8 @@ def test_generic_notice_entry_preserves_review_gate_on_fresh_state(isolated_engi
         gated_page = client.get(entry.headers["location"])
         assert gated_page.status_code == 200
         assert "Locked: <span data-blocked-count>2</span> checks remaining" in gated_page.text
-        assert 'href="/notices"' in gated_page.text
+        assert 'href="/notices" data-view-id="notice"' not in gated_page.text
+        assert re.search(r'<span class="nav-locked"[^>]*>\s*<span>Freeze notices</span>', gated_page.text)
         assert 'href="/notices/1"' not in gated_page.text
 
         keys = [str(spec["key"]) for spec in finding_review_specs()]
@@ -170,7 +181,7 @@ def test_finding_review_contract_uses_explicit_persisted_keys(isolated_engine) -
             follow_redirects=False,
         )
         assert prepared.status_code == 303
-        assert prepared.headers["location"] == "/notices/1"
+        assert prepared.headers["location"] == "/notices/1/workflow"
         with Session(isolated_engine) as session:
             finding = session.get(Finding, finding_id)
             notice = session.get(Notice, 1)
@@ -475,6 +486,10 @@ def test_demo_notice_resets_to_draft_on_logout(isolated_engine) -> None:
     with TestClient(app) as client:
         finding_id = login_and_seed(client)
         finding_page = client.get(f"/findings/{finding_id}")
+        assert 'href="/cases/1/canvas?snapshot=1"><span>Investigator canvas</span>' in finding_page.text
+        assert f'href="/findings/{finding_id}"><span>Custody findings</span>' in finding_page.text
+        assert 'href="/notices" data-view-id="notice"><span>Freeze notices' not in finding_page.text
+        assert re.search(r'<span class="nav-locked"[^>]*>\s*<span>Freeze notices</span>', finding_page.text)
         prepared = client.post(
             f"/findings/{finding_id}/checks",
             data={
@@ -486,6 +501,45 @@ def test_demo_notice_resets_to_draft_on_logout(isolated_engine) -> None:
         )
         assert prepared.status_code == 303
         notice_id = 1
+        workflow_view = client.get(f"/notices/{notice_id}/workflow")
+        assert 'href="/notices" data-view-id="notice"><span>Freeze notices' not in workflow_view.text
+        assert re.search(r'<span class="nav-locked"[^>]*>\s*<span>Freeze notices</span>', workflow_view.text)
+        changed_parameters = client.post(
+            f"/notices/{notice_id}/workflow/parameters",
+            data={
+                "csrf_token": csrf_from(workflow_view.text),
+                "duration_hours": "36",
+                "vasp_contact": "previous-cycle-prefill@example.invalid",
+                "service_channels": ["portal", "sahyog"],
+            },
+            follow_redirects=False,
+        )
+        assert changed_parameters.status_code == 303
+        generated = client.post(
+            f"/notices/{notice_id}/workflow/generate",
+            data={"csrf_token": csrf_from(workflow_view.text)},
+            follow_redirects=False,
+        )
+        assert generated.status_code == 303
+        assert generated.headers["location"] == f"/notices/{notice_id}/workflow#stage-review"
+        with Session(isolated_engine) as session:
+            workflow_draft = session.exec(
+                select(NoticeDraft).where(NoticeDraft.notice_id == notice_id)
+            ).one()
+            assert workflow_draft.stage == "review"
+            assert workflow_draft.generated is True
+            assert workflow_draft.active_version_no == 1
+            assert workflow_draft.parameters["duration_hours"] == 36
+            assert workflow_draft.parameters["vasp_contact"] == "previous-cycle-prefill@example.invalid"
+            assert workflow_draft.parameters["service_channels"] == ["portal", "sahyog"]
+
+        revisit_details = client.get(f"/notices/{notice_id}/workflow?stage=parameters")
+        assert revisit_details.status_code == 200
+        assert 'href="/notices" data-view-id="notice"><span>Freeze notices' in revisit_details.text
+        assert 'id="stage-parameters" class="workflow-card workflow-stage-panel">' in revisit_details.text
+        assert 'name="vasp_contact" value="previous-cycle-prefill@example.invalid"' in revisit_details.text
+        assert f'href="/notices/{notice_id}/workflow?stage=attachments#stage-attachments"' in revisit_details.text
+        assert f'href="/notices/{notice_id}/workflow?stage=review#stage-review"' in revisit_details.text
 
         draft = client.get(f"/notices/{notice_id}")
         requested = client.post(
@@ -545,6 +599,20 @@ def test_demo_notice_resets_to_draft_on_logout(isolated_engine) -> None:
             assert notice.pdf_sha256 is None
             assert notice.tracker_status == "drafted"
             assert case.stage == CaseStage.notice_draft
+            workflow_draft = session.exec(
+                select(NoticeDraft).where(NoticeDraft.notice_id == notice_id)
+            ).one()
+            assert workflow_draft.stage == "parameters"
+            assert workflow_draft.generated is False
+            assert workflow_draft.dirty is False
+            assert workflow_draft.active_version_no is None
+            assert workflow_draft.attested_by_pis is None
+            assert workflow_draft.attested_ts_ms is None
+            assert workflow_draft.attested_version_no is None
+            assert workflow_draft.parameters["duration_hours"] == 24
+            assert workflow_draft.parameters["vasp_contact"] == "le-requests@coinsphere.example.invalid"
+            assert workflow_draft.parameters["service_channels"] == ["portal", "email"]
+            assert session.exec(select(NoticeVersion)).all()
             assert session.exec(select(Dispatch)).all() == []
             assert session.exec(select(NoticeTrackerEvent)).all() == []
 
@@ -556,6 +624,15 @@ def test_demo_notice_resets_to_draft_on_logout(isolated_engine) -> None:
         assert "Request countersignature" in reset_view.text
         assert "Dispatched, awaiting acknowledgement" not in reset_view.text
         assert "Countersigned by ACP S. Deshmukh" not in reset_view.text
+        reset_workflow = client.get(f"/notices/{notice_id}/workflow")
+        assert reset_workflow.status_code == 200
+        assert 'href="/notices" data-view-id="notice"><span>Freeze notices' not in reset_workflow.text
+        assert re.search(r'<span class="nav-locked"[^>]*>\s*<span>Freeze notices</span>', reset_workflow.text)
+        assert ">Details</span></a>" in reset_workflow.text
+        assert 'id="stage-parameters" class="workflow-card workflow-stage-panel">' in reset_workflow.text
+        assert 'id="stage-review" class="workflow-card workflow-stage-panel" hidden' in reset_workflow.text
+        assert 'name="vasp_contact" value="le-requests@coinsphere.example.invalid"' in reset_workflow.text
+        assert "previous-cycle-prefill@example.invalid" not in reset_workflow.text
 
         requested_again = client.post(
             f"/notices/{notice_id}/countersign-request",
@@ -571,6 +648,133 @@ def test_demo_notice_resets_to_draft_on_logout(isolated_engine) -> None:
         acp_view = client.get(f"/notices/{notice_id}")
         assert "data-countersign" in acp_view.text
         assert "Awaiting ACP S. Deshmukh" in acp_view.text
+
+
+def test_fixture_sample_prepare_reopens_notice_workflow_at_details_after_logout(
+    isolated_engine,
+) -> None:
+    keys = [str(spec["key"]) for spec in finding_review_specs()]
+
+    with TestClient(app) as client:
+        login = client.post("/auth/prototype", data={"role": "io"}, follow_redirects=False)
+        assert login.status_code == 303
+        intake = client.get("/cases/new")
+        assert intake.status_code == 200
+        ingested = client.post(
+            "/cases/ingest",
+            data={
+                "ack_no": "NCRP/2026/MH/0091001",
+                "csrf_token": csrf_from(intake.text),
+            },
+        )
+        assert ingested.status_code == 200
+        started = client.post(
+            "/cases/start",
+            data={
+                "ack_no": "NCRP/2026/MH/0091001",
+                "reviewed": "yes",
+                "csrf_token": csrf_from(ingested.text),
+            },
+            follow_redirects=False,
+        )
+        assert started.status_code == 303
+
+        with Session(isolated_engine) as session:
+            case = session.exec(
+                select(Case).where(Case.ack_no == "NCRP/2026/MH/0091001")
+            ).one()
+            finding = session.exec(select(Finding).where(Finding.case_id == case.id)).one()
+            finding_id = int(finding.id or 0)
+
+        finding_page = client.get(f"/findings/{finding_id}")
+        prepared = client.post(
+            f"/findings/{finding_id}/checks",
+            data={
+                "review_check": keys,
+                "action": "prepare",
+                "csrf_token": csrf_from(finding_page.text),
+            },
+            follow_redirects=False,
+        )
+        assert prepared.status_code == 303
+        assert prepared.headers["location"].endswith("/workflow")
+
+        with Session(isolated_engine) as session:
+            notice = session.exec(
+                select(Notice).where(Notice.case_id == case.id)
+            ).one()
+            notice_id = int(notice.id or 0)
+
+        workflow = client.get(f"/notices/{notice_id}/workflow")
+        changed_parameters = client.post(
+            f"/notices/{notice_id}/workflow/parameters",
+            data={
+                "csrf_token": csrf_from(workflow.text),
+                "duration_hours": "72",
+                "vasp_contact": "stale-sample-prefill@example.invalid",
+                "service_channels": ["portal", "nodal-copy", "sahyog"],
+            },
+            follow_redirects=False,
+        )
+        assert changed_parameters.status_code == 303
+        generated = client.post(
+            f"/notices/{notice_id}/workflow/generate",
+            data={"csrf_token": csrf_from(workflow.text)},
+            follow_redirects=False,
+        )
+        assert generated.status_code == 303
+
+        review = client.get(f"/notices/{notice_id}/workflow#stage-review")
+        attested = client.post(
+            f"/notices/{notice_id}/workflow/attest",
+            data={"csrf_token": csrf_from(review.text), "preview_complete": "true"},
+            follow_redirects=False,
+        )
+        assert attested.status_code == 303
+        verification = client.get(f"/notices/{notice_id}/workflow#stage-verification")
+        verified = client.post(
+            f"/notices/{notice_id}/workflow/verify",
+            data={"csrf_token": csrf_from(verification.text), "method": "demo_io"},
+            follow_redirects=False,
+        )
+        assert verified.status_code == 303
+        routing = client.get(f"/notices/{notice_id}/workflow#stage-routing")
+        routed = client.post(
+            f"/notices/{notice_id}/workflow/route",
+            data={"csrf_token": csrf_from(routing.text), "route": "acp"},
+            follow_redirects=False,
+        )
+        assert routed.status_code == 303
+        final_workflow = client.get(f"/notices/{notice_id}/workflow")
+        assert "Routing</span></a>" in final_workflow.text
+        assert 'id="stage-routing" class="workflow-card workflow-stage-panel">' in final_workflow.text
+
+        signed_out = client.post(
+            "/auth/logout",
+            data={"csrf_token": csrf_from(final_workflow.text)},
+            follow_redirects=False,
+        )
+        assert signed_out.status_code == 303
+
+        client.post("/auth/prototype", data={"role": "io"}, follow_redirects=False)
+        finding_again = client.get(f"/findings/{finding_id}")
+        prepared_again = client.post(
+            f"/findings/{finding_id}/checks",
+            data={
+                "review_check": keys,
+                "action": "prepare",
+                "csrf_token": csrf_from(finding_again.text),
+            },
+            follow_redirects=False,
+        )
+        assert prepared_again.status_code == 303
+        assert prepared_again.headers["location"] == f"/notices/{notice_id}/workflow"
+        restarted = client.get(prepared_again.headers["location"])
+        assert restarted.status_code == 200
+        assert 'id="stage-parameters" class="workflow-card workflow-stage-panel">' in restarted.text
+        assert 'id="stage-routing" class="workflow-card workflow-stage-panel" hidden' in restarted.text
+        assert 'name="vasp_contact" value="le-requests@coinsphere.example.invalid"' in restarted.text
+        assert "stale-sample-prefill@example.invalid" not in restarted.text
 
 
 def test_sahyog_export_rejects_notice_without_finding(isolated_engine) -> None:

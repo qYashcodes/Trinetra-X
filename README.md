@@ -18,6 +18,19 @@ python -m app.main
 
 Open `http://127.0.0.1:8000` and use **PROTOTYPE BASED LOGIN**.
 
+For live tracing on Windows, launch from your normal PowerShell account:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-local.ps1
+```
+
+The launcher starts one background server, keeps timestamped logs under `var/`, and checks
+TronGrid connectivity when live tracing is configured. It refuses a Codex sandbox account or an
+occupied port. A server started as `CodexSandboxOffline` cannot reach TronGrid even when the
+browser has internet access; this produces "TronGrid request failed before a response was received."
+Stop that server and use the launcher above. When launching through Codex, the launch must run
+with approved unsandboxed execution. No API keys or feature gates need to be changed for this issue.
+
 Local verification that does not require the web dependencies:
 
 ```powershell

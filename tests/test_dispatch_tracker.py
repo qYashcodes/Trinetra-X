@@ -177,3 +177,33 @@ def test_dispatch_tracker_lists_filters_updates_and_requires_csrf(isolated_engin
     actions = [row["action"] for row in isolated_engine.audit_rows]  # type: ignore[attr-defined]
     assert "notice.tracker_update" in actions
     assert "notice.tracker_escalate" in actions
+
+
+def test_dispatch_tracker_role_switch_changes_visible_workbench(isolated_engine) -> None:
+    _seed_dispatched_notice(isolated_engine)
+
+    with TestClient(app) as client:
+        login = client.post("/auth/prototype", data={"role": "io"}, follow_redirects=False)
+        assert login.status_code == 303
+
+        io_page = client.get("/dispatch-tracker")
+        assert io_page.status_code == 200
+        assert "IO workqueue view" in io_page.text
+        assert "Status update desk" in io_page.text
+        assert "tracker-update-form" in io_page.text
+        assert "ACP oversight controls" not in io_page.text
+
+        switched = client.post(
+            "/auth/prototype",
+            data={"role": "supervisor", "next_url": "/dispatch-tracker"},
+            follow_redirects=False,
+        )
+        assert switched.status_code == 303
+        assert switched.headers["location"] == "/dispatch-tracker"
+        acp_page = client.get("/dispatch-tracker")
+        assert acp_page.status_code == 200
+        assert "ACP oversight view" in acp_page.text
+        assert "Escalation and SLA supervision" in acp_page.text
+        assert "ACP oversight controls" in acp_page.text
+        assert "Status updates remain with the assigned IO" in acp_page.text
+        assert "tracker-update-form" not in acp_page.text

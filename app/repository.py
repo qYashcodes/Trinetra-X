@@ -26,6 +26,8 @@ from app.models import (
     Finding,
     FrontierItem,
     Notice,
+    NoticeDraft,
+    NoticeVerificationState,
     NoticeTrackerEvent,
     OfficerRole,
     SourceCoverage,
@@ -41,6 +43,7 @@ from app.services.evidence_store import (
 )
 from app.services.explainability import trace_explainability
 from app.services.hash import sha256_json
+from app.services.notice_workflow import reset_notice_draft_for_demo_cycle
 from app.services.officers import ensure_case_assignment, upsert_officer_profile
 from app.services.time import now_ms
 from app.settings import settings
@@ -371,50 +374,81 @@ def prepare_notice(session: Session, finding: Finding, created_by_pis: str) -> N
 
 
 def reset_demo_notice_workflow(session: Session) -> dict[str, int]:
-    data = demo_case()
-    ack_no = str(data["case"]["ack_no"])
-    cases = session.exec(select(Case).where(Case.ack_no == ack_no)).all()
     reset_at = now_ms()
     summary = {
         "cases": 0,
         "notices": 0,
+        "notice_drafts": 0,
+        "verification_states": 0,
         "dispatches": 0,
         "tracker_events": 0,
         "vasp_responses": 0,
     }
-    for case in cases:
-        notices = session.exec(select(Notice).where(Notice.case_id == case.id)).all()
-        if not notices:
+    reset_case_ids: set[int] = set()
+    notices = session.exec(select(Notice).order_by(Notice.id)).all()
+    for notice in notices:
+        finding = session.get(Finding, notice.finding_id)
+        snapshot = session.get(TraceSnapshot, finding.snapshot_id) if finding else None
+        mode = (
+            snapshot.result_json.get("engine", {}).get("mode")
+            if snapshot is not None
+            else None
+        )
+        if mode != "fixture":
             continue
-        summary["cases"] += 1
+        case = session.get(Case, notice.case_id)
+        if case is None:
+            continue
+        if int(case.id or 0) not in reset_case_ids:
+            summary["cases"] += 1
+            reset_case_ids.add(int(case.id or 0))
         case.stage = CaseStage.notice_draft
         case.updated_ts_ms = reset_at
         session.add(case)
-        for notice in notices:
-            dispatches = session.exec(select(Dispatch).where(Dispatch.notice_id == notice.id)).all()
-            tracker_events = session.exec(
-                select(NoticeTrackerEvent).where(NoticeTrackerEvent.notice_id == notice.id)
+        dispatches = session.exec(select(Dispatch).where(Dispatch.notice_id == notice.id)).all()
+        tracker_events = session.exec(
+            select(NoticeTrackerEvent).where(NoticeTrackerEvent.notice_id == notice.id)
+        ).all()
+        responses = session.exec(
+            select(VaspResponse).where(VaspResponse.notice_id == notice.id)
+        ).all()
+        for row in [*dispatches, *tracker_events, *responses]:
+            session.delete(row)
+        summary["dispatches"] += len(dispatches)
+        summary["tracker_events"] += len(tracker_events)
+        summary["vasp_responses"] += len(responses)
+        notice.status = "draft"
+        notice.deadline_hours = 24
+        notice.pdf_sha256 = None
+        notice.countersigned_by_pis = None
+        notice.countersigned_ts_ms = None
+        notice.tracker_status = "drafted"
+        notice.tracker_sub_outcome = None
+        notice.tracker_last_note = None
+        notice.tracker_updated_ts_ms = None
+        notice.dispatched_ts_ms = None
+        session.add(notice)
+        summary["notices"] += 1
+        drafts = session.exec(select(NoticeDraft).where(NoticeDraft.notice_id == notice.id)).all()
+        for draft in drafts:
+            states = session.exec(
+                select(NoticeVerificationState).where(NoticeVerificationState.draft_id == draft.id)
             ).all()
-            responses = session.exec(
-                select(VaspResponse).where(VaspResponse.notice_id == notice.id)
-            ).all()
-            for row in [*dispatches, *tracker_events, *responses]:
-                session.delete(row)
-            summary["dispatches"] += len(dispatches)
-            summary["tracker_events"] += len(tracker_events)
-            summary["vasp_responses"] += len(responses)
-            notice.status = "draft"
-            notice.deadline_hours = 24
-            notice.pdf_sha256 = None
-            notice.countersigned_by_pis = None
-            notice.countersigned_ts_ms = None
-            notice.tracker_status = "drafted"
-            notice.tracker_sub_outcome = None
-            notice.tracker_last_note = None
-            notice.tracker_updated_ts_ms = None
-            notice.dispatched_ts_ms = None
-            session.add(notice)
-            summary["notices"] += 1
+            for state in states:
+                state.failure_count = 0
+                state.locked_until_ts_ms = None
+                state.last_method = None
+                state.verified_ts_ms = None
+                state.updated_ts_ms = reset_at
+                session.add(state)
+            summary["verification_states"] += len(states)
+            reset_notice_draft_for_demo_cycle(
+                session,
+                draft,
+                notice,
+                reset_ts_ms=reset_at,
+            )
+            summary["notice_drafts"] += 1
     if summary["notices"]:
         session.commit()
     return summary

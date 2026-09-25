@@ -15,6 +15,7 @@ from app.services.evidence_store import (
 )
 from app.services.provider_budget import reserve_provider_request
 from app.services.time import now_ms
+from engine.contracts import NormalizedTransferRecord
 
 DEFAULT_TRONGRID_BASE_URL = "https://api.trongrid.io"
 TRON_MAINNET_USDT = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
@@ -497,7 +498,7 @@ def _retry_after_ms(response: Any) -> int | None:
     return max(0, seconds) * 1000
 
 
-def normalise(raw: dict) -> dict:
+def normalise(raw: dict) -> NormalizedTransferRecord:
     token_info = raw.get("token_info")
     if token_info is None:
         token_info = {}
@@ -522,7 +523,7 @@ def normalise(raw: dict) -> dict:
             "TRON transfer payload has invalid integer fields.",
             error_kind="schema_drift",
         ) from exc
-    normalized = {
+    normalized: NormalizedTransferRecord = {
         "txid": str(txid),
         "ts_ms": timestamp_value,
         "source": str(source),

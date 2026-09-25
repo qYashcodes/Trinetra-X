@@ -77,5 +77,6 @@
   root.querySelector('[data-download]')?.addEventListener('click', () => {
     live.textContent = signed ? 'Signed PDF prepared for download' : 'Draft PDF prepared for download';
   });
+
   syncChannels();
 })();

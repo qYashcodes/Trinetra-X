@@ -7,7 +7,7 @@ from app.services.capabilities import capability_matrix
 from app.services.feature_flags import feature_flags
 from app.services.worker import frontier_worker_status
 from app.services.provider_budget import provider_budget_status
-from app.settings import settings
+from app.settings import ROOT_DIR, settings
 
 
 SECRET_ENV_NAMES = {
@@ -57,6 +57,18 @@ def integration_status() -> dict[str, Any]:
     session_secret_ready = _configured("SESSION_SECRET")
     chain_live_ready = settings.mode == "live" and bool(
         flags["live_tron_provider"]["enabled"]
+    )
+    presence_asset_root = ROOT_DIR / "app" / "static" / "vendor" / "mediapipe"
+    presence_assets_ready = all(
+        (presence_asset_root / relative).is_file()
+        for relative in (
+            "vision_bundle.mjs",
+            "blaze_face_short_range.tflite",
+            "wasm/vision_wasm_internal.js",
+            "wasm/vision_wasm_internal.wasm",
+            "wasm/vision_wasm_nosimd_internal.js",
+            "wasm/vision_wasm_nosimd_internal.wasm",
+        )
     )
 
     groups = [
@@ -227,6 +239,71 @@ def integration_status() -> dict[str, Any]:
                     "label": "Monitoring and backup",
                     "status": "disabled",
                     "detail": "production operations integration not configured",
+                },
+            ],
+        },
+        {
+            "key": "workstation_presence",
+            "name": "Workstation presence",
+            "summary": (
+                "Optional on-device face presence can obscure an unattended workspace; "
+                "it does not identify or authenticate the officer."
+            ),
+            "status": "configured"
+            if flags["workstation_presence"]["enabled"]
+            else "disabled",
+            "items": [
+                {
+                    "label": "TRINETRA_ENABLE_WORKSTATION_PRESENCE",
+                    "status": "configured"
+                    if flags["workstation_presence"]["requested"]
+                    else "disabled",
+                    "detail": str(flags["workstation_presence"]["requested"]).lower(),
+                },
+                {
+                    "label": "TRINETRA_WORKSTATION_PRESENCE_REVIEWED",
+                    "status": "configured"
+                    if flags["workstation_presence"]["reviewed"]
+                    else "approval_required",
+                    "detail": str(flags["workstation_presence"]["reviewed"]).lower(),
+                },
+                {
+                    "label": "Pinned local runtime",
+                    "status": "configured" if presence_assets_ready else "missing",
+                    "detail": "MediaPipe Tasks Vision 1.0.1 and BlazeFace short-range",
+                },
+                {
+                    "label": "Browser security context",
+                    "status": "configured"
+                    if flags["workstation_presence"]["enabled"]
+                    else "disabled",
+                    "detail": "requires HTTPS or localhost plus officer camera permission",
+                },
+            ],
+        },
+        {
+            "key": "narrative_triage",
+            "name": "Complaint narrative triage",
+            "summary": (
+                "Deterministic English typology indicators remain advisory and contain no "
+                "probability or custody claim."
+            ),
+            "status": "configured" if flags["narrative_triage"]["enabled"] else "approval_required",
+            "items": [
+                {
+                    "label": "TRINETRA_ENABLE_NARRATIVE_TRIAGE",
+                    "status": "configured" if flags["narrative_triage"]["requested"] else "disabled",
+                    "detail": str(flags["narrative_triage"]["requested"]).lower(),
+                },
+                {
+                    "label": "TRINETRA_NARRATIVE_TAXONOMY_REVIEWED",
+                    "status": "configured" if flags["narrative_triage"]["taxonomy_reviewed"] else "approval_required",
+                    "detail": str(flags["narrative_triage"]["taxonomy_reviewed"]).lower(),
+                },
+                {
+                    "label": "TRINETRA_NARRATIVE_PRIVACY_REVIEWED",
+                    "status": "configured" if flags["narrative_triage"]["privacy_reviewed"] else "approval_required",
+                    "detail": str(flags["narrative_triage"]["privacy_reviewed"]).lower(),
                 },
             ],
         },

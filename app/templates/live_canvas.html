@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Live investigator canvas · TRINETRA{% endblock %}
-{% block page_styles %}<link rel="stylesheet" href="/static/live.css"><link rel="stylesheet" href="/static/omega-graph.css"><link rel="stylesheet" href="/static/explainability.css">{% endblock %}
-{% block page_scripts %}<script defer src="/static/omega-graph.js"></script><script defer src="/static/explainability.js"></script>{% endblock %}
+{% block page_styles %}<link rel="stylesheet" href="/static/live.css"><link rel="stylesheet" href="/static/omega-graph.css?v=export-single-20260921"><link rel="stylesheet" href="/static/explainability.css">{% endblock %}
+{% block page_scripts %}<script defer src="/static/omega-graph.js?v=export-single-20260921"></script><script defer src="/static/explainability.js"></script>{% endblock %}
 {% block breadcrumb %}<div class="breadcrumb"><span>Investigations</span><b>/</b><span>Canvas</span><b>/</b><strong class="mono">{{ case.ack_no }}</strong></div>{% endblock %}
 {% block content %}
 {% set result = snapshot.result_json %}
@@ -14,7 +14,7 @@
 {% set started_ms = result_case.get('payment_ts') if result_case.get('payment_ts') is not none else result_case.get('payment_ts_ms') %}
 <section class="live-canvas">
   {% include "_trace_mode_banner.html" %}
-  <header class="live-canvas-heading"><div><span>Snapshot {{ snapshot.id }}</span><h1>Confirmed fund-flow canvas</h1></div><div><button class="trace-explain-trigger" type="button" data-explain-target="methodology">Explain trace</button>{% if finding is defined and finding %}<a href="/findings/{{ finding.id }}">Custody finding</a>{% endif %}<a href="/traces/{{ snapshot.id }}">Trace details</a></div></header>
+  <header class="live-canvas-heading"><div class="live-canvas-heading-title"><span>Snapshot {{ snapshot.id }}</span><h1>Confirmed fund-flow canvas</h1></div></header>
   <div class="freshness-strip {{ 'stale' if runtime_status.data_freshness.stale else '' }}" data-explain-target="seed" role="button" tabindex="0"><span><i></i><b>{% if runtime_status.data_freshness.chain_data_as_of_ms %}Chain data as of {{ runtime_status.data_freshness.chain_data_as_of_ms | ist }}{% else %}No provider timestamp recorded{% endif %}</b></span><em>{{ 'Refresh recommended' if runtime_status.data_freshness.stale else 'Current within configured window' }}</em></div>
   <section class="live-canvas-casebar" aria-label="Case summary">
     <div class="live-canvas-case-main">
@@ -34,7 +34,12 @@
     <div><small>Value threshold</small><span class="mono">>= {{ result_params.get('value_floor_share', '0.02') }}</span></div>
     <div><small>Stop at</small><span>{{ result_terminal.kind | default('trace_boundary', true) | labelize }}</span></div>
     <div><small>Parked</small><span class="mono">{{ result.parked | length }} branches</span></div>
-    {% if user.role in ['io', 'admin'] %}<form method="post" action="/traces/{{ snapshot.id }}/retrace" data-retrace-form><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">Re-run trace</button></form>{% endif %}
+    <div class="live-canvas-strategy-actions" aria-label="Trace actions">
+      <button type="button" data-explain-target="methodology">Explain trace</button>
+      {% if user.role in ['io', 'admin'] %}<form method="post" action="/traces/{{ snapshot.id }}/retrace" data-retrace-form><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">Re-run trace</button></form>{% endif %}
+      {% if finding is defined and finding %}<a href="/findings/{{ finding.id }}">Custody finding</a>{% else %}<button type="button" disabled title="No custody finding is recorded for this live snapshot.">Custody findings</button>{% endif %}
+      <a href="/traces/{{ snapshot.id }}">Trace details</a>
+    </div>
   </section>
   <p class="live-canvas-strategy-delta" data-strategy-delta aria-live="polite">Loading active strategy criterion...</p>
   {% include "_omega_graph.html" %}

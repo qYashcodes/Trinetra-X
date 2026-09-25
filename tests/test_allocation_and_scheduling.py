@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from contextlib import contextmanager
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.engine_bridge import TraceParams
+from app.engine_bridge import TraceParams, _attribute_live_outgoing_edges
 from app.models import AttributedLot, CanonicalTraceEvent, Case, FrontierItem, SourceCoverage
 from app.services.allocation import (
     AllocationError,
@@ -23,10 +25,15 @@ from app.services.frontier import (
     persist_frontier_observations,
     release_frontier_item,
 )
-from app.services.live_tron_resume import expand_live_tron_frontier_item
+from app.services.live_tron_resume import (
+    _attribute_edges,
+    _frontier_schedule,
+    expand_live_tron_frontier_item,
+)
 from app.services.live_tron_resume import release_due_frontier_retries
 from app.services.live_tron_resume import run_live_tron_frontier_cycle
 from app.services.time import now_ms
+import app.services.live_tron_resume as live_tron_resume_module
 
 
 @pytest.fixture
@@ -64,6 +71,55 @@ def make_case(session: Session, ack_no: str = "NCRP/2026/TEST/FRONTIER") -> Case
     session.commit()
     session.refresh(case)
     return case
+
+
+def make_live_frontier_item(
+    session: Session,
+    *,
+    ack_no: str,
+    address: str,
+) -> tuple[Case, AttributedLot, FrontierItem]:
+    from engine.adapters import tron
+
+    case = make_case(session, ack_no)
+    ts = now_ms()
+    lot = AttributedLot(
+        case_id=case.id,
+        snapshot_id=None,
+        seed_event_ref=f"seed:{address}",
+        asset_identifier=f"TRON:mainnet:USDT:{tron.TRON_MAINNET_USDT}",
+        current_address=address,
+        remaining_amount_base=1_000,
+        arrival_cursor={"txid": "9" * 64, "event_index": 0},
+        allocation_policy="value_weighted",
+        allocation_version="trinetra.allocation/1",
+        ancestry=[{"evidence_ref": f"seed:{address}", "kind": "seed"}],
+        rounding_state={"residual_numerator": 0},
+        state="queued",
+        created_ts_ms=ts,
+        updated_ts_ms=ts,
+    )
+    session.add(lot)
+    session.commit()
+    session.refresh(lot)
+    frontier = FrontierItem(
+        case_id=case.id,
+        snapshot_id=None,
+        lot_id=lot.id,
+        event_ref=f"frontier:{address}",
+        priority_base=1_000,
+        priority_reason="value_weighted",
+        depth=1,
+        state="queued",
+        deferral_reason=None,
+        resume_cursor={"address": address, "ts_ms": ts},
+        created_ts_ms=ts,
+        updated_ts_ms=ts,
+    )
+    session.add(frontier)
+    session.commit()
+    session.refresh(frontier)
+    return case, lot, frontier
 
 
 def test_proportional_allocation_uses_integer_base_units() -> None:
@@ -123,6 +179,150 @@ def test_full_balance_spend_receives_remaining_attribution_despite_old_residual(
 def test_allocation_rejects_inconsistent_evidence(kwargs: dict) -> None:
     with pytest.raises(AllocationError):
         allocate_proportional(**kwargs)
+
+
+def test_initial_and_resume_allocation_wrappers_preserve_distinct_complete_outputs() -> None:
+    outgoing = [
+        {
+            "txid": "first",
+            "ts_ms": 100,
+            "source": "TSource",
+            "destination": "TShared",
+            "amount_base": 1,
+            "event_index": 0,
+        },
+        {
+            "txid": "second",
+            "ts_ms": 100,
+            "source": "TSource",
+            "destination": "TShared",
+            "amount_base": 1,
+            "event_index": None,
+        },
+        {
+            "txid": "",
+            "ts_ms": 100,
+            "source": "TSource",
+            "destination": "TShared",
+            "amount_base": 0,
+            "event_index": 2,
+        },
+        {
+            "txid": "third",
+            "ts_ms": 100,
+            "source": "TSource",
+            "destination": "TShared",
+            "amount_base": 1,
+            "event_index": 3,
+        },
+        {
+            "txid": None,
+            "ts_ms": 100,
+            "source": "TSource",
+            "destination": "TShared",
+            "amount_base": 0,
+            "event_index": None,
+        },
+    ]
+    original = [dict(row) for row in outgoing]
+    attributed = [0, 1, 0, 0, 0]
+    residuals = [1, 0, 0, 0, 0]
+    initial_refs = [
+        "live:tron:first:0",
+        "live:tron:second:1",
+        "live:tron::2",
+        "live:tron:third:3",
+        "live:tron:unknown-4:4",
+    ]
+    resume_refs = [*initial_refs[:4], "live:tron:unknown:4"]
+    allocations = [
+        {
+            "policy": "integer_proportional",
+            "version": "trinetra.allocation/1",
+            "incoming_attributed_base": 1,
+            "observed_outgoing_base": 1,
+            "denominator_base": 3,
+            "numerator_base": 1,
+            "outgoing_attributed_base": 0,
+            "residual_before": 0,
+            "residual_numerator": 1,
+            "remaining_balance_base": 2,
+            "remaining_attributed_base": 1,
+            "initial_balance_basis": {
+                "incoming_attributed_base": 1,
+                "observed_outgoing_total_base": 3,
+                "denominator_base": 3,
+            },
+        },
+        {
+            "policy": "integer_proportional",
+            "version": "trinetra.allocation/1",
+            "incoming_attributed_base": 1,
+            "observed_outgoing_base": 1,
+            "denominator_base": 2,
+            "numerator_base": 2,
+            "outgoing_attributed_base": 1,
+            "residual_before": 1,
+            "residual_numerator": 0,
+            "remaining_balance_base": 1,
+            "remaining_attributed_base": 0,
+            "initial_balance_basis": {
+                "incoming_attributed_base": 1,
+                "observed_outgoing_total_base": 3,
+                "denominator_base": 3,
+            },
+        },
+        *[
+            {
+                "policy": "integer_proportional",
+                "version": "trinetra.allocation/1",
+                "incoming_attributed_base": 0,
+                "observed_outgoing_base": outgoing[index]["amount_base"],
+                "denominator_base": 1,
+                "numerator_base": None,
+                "outgoing_attributed_base": 0,
+                "residual_before": 0,
+                "residual_numerator": 0,
+                "remaining_balance_base": 1,
+                "remaining_attributed_base": 0,
+                "initial_balance_basis": {
+                    "incoming_attributed_base": 1,
+                    "observed_outgoing_total_base": 3,
+                    "denominator_base": 3,
+                },
+            }
+            for index in range(2, 5)
+        ],
+    ]
+
+    initial, initial_remaining = _attribute_live_outgoing_edges(outgoing, amount_base=1)
+    resumed, resumed_remaining = _attribute_edges(outgoing, attributed_base=1)
+
+    assert outgoing == original
+    assert _attribute_live_outgoing_edges([], amount_base=5) == ([], 5)
+    assert _attribute_edges([], attributed_base=5) == ([], 5)
+    assert initial_remaining == resumed_remaining == 0
+    assert initial == [
+        {
+            **row,
+            "event_order": index,
+            "stable_id": initial_refs[index],
+            "attributed_base": attributed[index],
+            "residual_numerator": residuals[index],
+            "allocation": allocations[index],
+        }
+        for index, row in enumerate(original)
+    ]
+    assert resumed == [
+        {
+            **row,
+            "event_ref": resume_refs[index],
+            "event_order": index,
+            "attributed_base": attributed[index],
+            "residual_numerator": residuals[index],
+        }
+        for index, row in enumerate(original)
+    ]
 
 
 def test_100_way_split_remains_represented_but_deferred_under_floor() -> None:
@@ -422,6 +622,9 @@ def test_live_tron_frontier_expansion_persists_resume_children_and_stationary_va
         assert address == "TParent"
         assert kwargs["contract_address"] == tron.TRON_MAINNET_USDT
         assert kwargs["min_timestamp"] == 0
+        # Resume currently owns no sealed upper time bound. Keep this explicit so
+        # adding one later is an intentional policy/protocol change.
+        assert "max_timestamp" not in kwargs
         return [
             {
                 "transaction_id": "a" * 64,
@@ -434,7 +637,7 @@ def test_live_tron_frontier_expansion_persists_resume_children_and_stationary_va
             },
             {
                 "transaction_id": "b" * 64,
-                "block_timestamp": ts + 2,
+                "block_timestamp": ts + (48 * 60 * 60 * 1000),
                 "from": "TParent",
                 "to": "TQueued",
                 "value": "400",
@@ -443,7 +646,7 @@ def test_live_tron_frontier_expansion_persists_resume_children_and_stationary_va
             },
             {
                 "transaction_id": "c" * 64,
-                "block_timestamp": ts + 3,
+                "block_timestamp": ts + (48 * 60 * 60 * 1000) + 1,
                 "from": "TParent",
                 "to": "TDeferred",
                 "value": "100",
@@ -462,6 +665,7 @@ def test_live_tron_frontier_expansion_persists_resume_children_and_stationary_va
             strategy="value_weighted",
             breadth_cap=1,
             value_floor_share=Decimal("0.20"),
+            time_window_hours=1,
         ),
     )
 
@@ -500,6 +704,62 @@ def test_live_tron_frontier_expansion_persists_resume_children_and_stationary_va
     assert coverage.observed_watermark["queued"] == 1
     assert coverage.observed_watermark["deferred"] == 1
     assert coverage.observed_watermark["stationary_amount_base"] == 500
+
+
+def test_live_resume_address_budget_is_scoped_to_each_expansion() -> None:
+    params = TraceParams(
+        strategy="value_weighted",
+        breadth_cap=3,
+        address_budget=1,
+    )
+
+    first_scheduled, first_deferrals = _frontier_schedule(
+        [
+            {
+                "event_ref": "first:high",
+                "attributed_base": 60,
+                "destination": "TFirstHigh",
+                "event_order": 0,
+            },
+            {
+                "event_ref": "first:low",
+                "attributed_base": 40,
+                "destination": "TFirstLow",
+                "event_order": 1,
+            },
+        ],
+        params=params,
+        next_depth=2,
+        value_floor_base=0,
+        visited_addresses={"tparentone"},
+    )
+    second_scheduled, second_deferrals = _frontier_schedule(
+        [
+            {
+                "event_ref": "second:high",
+                "attributed_base": 55,
+                "destination": "TSecondHigh",
+                "event_order": 0,
+            },
+            {
+                "event_ref": "second:low",
+                "attributed_base": 45,
+                "destination": "TSecondLow",
+                "event_order": 1,
+            },
+        ],
+        params=params,
+        next_depth=2,
+        value_floor_base=0,
+        visited_addresses={"tparenttwo"},
+    )
+
+    # The configured address budget is reapplied per expansion; there is no
+    # shared trace-level remaining-budget owner in the resume protocol today.
+    assert first_scheduled == {"first:high"}
+    assert first_deferrals == {"first:low": "breadth_cap"}
+    assert second_scheduled == {"second:high"}
+    assert second_deferrals == {"second:low": "breadth_cap"}
 
 
 def test_live_tron_frontier_expansion_defers_ancestor_cycles(
@@ -722,3 +982,126 @@ def test_live_tron_worker_cycle_defers_provider_errors_and_releases_due_retry(
     ).one()
     assert coverage.observed_watermark["observed_outgoing"] == 0
     assert coverage.observed_watermark["stationary_amount_base"] == 1_000
+
+
+def test_live_worker_rolls_back_partial_expansion_before_retry_deferral(
+    db: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from engine.adapters import tron
+
+    case, parent_lot, frontier = make_live_frontier_item(
+        db,
+        ack_no="NCRP/2026/TEST/LIVE-ROLLBACK",
+        address="TRollbackParent",
+    )
+
+    monkeypatch.setattr(
+        tron,
+        "fetch_trc20_transfers",
+        lambda *_args, **_kwargs: [
+            {
+                "transaction_id": "8" * 64,
+                "block_timestamp": now_ms(),
+                "from": "TRollbackParent",
+                "to": "TRollbackChild",
+                "value": "400",
+                "event_index": 0,
+                "token_info": {
+                    "symbol": "USDT",
+                    "decimals": 6,
+                    "address": tron.TRON_MAINNET_USDT,
+                },
+            }
+        ],
+    )
+
+    def fail_after_child_lot_flush(*_args, **_kwargs) -> FrontierItem:
+        raise live_tron_resume_module.LiveTronResumeError("injected child frontier failure")
+
+    monkeypatch.setattr(
+        live_tron_resume_module,
+        "_upsert_child_frontier",
+        fail_after_child_lot_flush,
+    )
+
+    cycle = run_live_tron_frontier_cycle(
+        db,
+        case_id=case.id,
+        worker_id="rollback-worker",
+        limit=1,
+        backoff_ms=0,
+    )
+
+    db.expire_all()
+    persisted_lots = db.exec(select(AttributedLot).where(AttributedLot.case_id == case.id)).all()
+    persisted_frontier = db.exec(
+        select(FrontierItem).where(FrontierItem.case_id == case.id)
+    ).all()
+    assert db.exec(
+        select(CanonicalTraceEvent).where(CanonicalTraceEvent.case_id == case.id)
+    ).all() == []
+    assert [row.id for row in persisted_lots] == [parent_lot.id]
+    assert [row.id for row in persisted_frontier] == [frontier.id]
+    assert persisted_lots[0].remaining_amount_base == 1_000
+    assert persisted_lots[0].state == "queued"
+    assert persisted_frontier[0].state == "deferred"
+    assert persisted_frontier[0].deferral_reason == "provider_backoff"
+    assert cycle.expanded == []
+    assert cycle.failures[0]["error_kind"] == "LiveTronResumeError"
+
+
+def test_provider_coverage_failure_occurs_after_expansion_commit(
+    db: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from engine.adapters import tron
+
+    case, parent_lot, frontier = make_live_frontier_item(
+        db,
+        ack_no="NCRP/2026/TEST/LIVE-COVERAGE-BOUNDARY",
+        address="TCoverageParent",
+    )
+    monkeypatch.setattr(tron, "fetch_trc20_transfers", lambda *_args, **_kwargs: [])
+
+    @contextmanager
+    def fake_evidence_scope(**_kwargs) -> Iterator[SimpleNamespace]:
+        yield SimpleNamespace(records=[{"request_ref": "captured-provider-response"}])
+
+    def fail_provider_coverage(*_args, **_kwargs) -> None:
+        raise RuntimeError("injected provider coverage persistence failure")
+
+    monkeypatch.setattr(
+        live_tron_resume_module,
+        "provider_evidence_scope",
+        fake_evidence_scope,
+    )
+    monkeypatch.setattr(
+        live_tron_resume_module,
+        "persist_provider_coverage",
+        fail_provider_coverage,
+    )
+
+    with pytest.raises(RuntimeError, match="coverage persistence failure"):
+        run_live_tron_frontier_cycle(
+            db,
+            case_id=case.id,
+            worker_id="coverage-worker",
+            limit=1,
+        )
+
+    # Expansion commits inside expand_live_tron_frontier_item. A later failure
+    # while linking captured provider coverage does not roll that commit back.
+    db.expire_all()
+    persisted_lot = db.get(AttributedLot, parent_lot.id)
+    persisted_frontier = db.get(FrontierItem, frontier.id)
+    assert persisted_lot is not None
+    assert persisted_frontier is not None
+    assert persisted_lot.state == "stationary_observed"
+    assert persisted_lot.remaining_amount_base == 1_000
+    assert persisted_frontier.state == "completed"
+    assert db.exec(
+        select(SourceCoverage)
+        .where(SourceCoverage.case_id == case.id)
+        .where(SourceCoverage.completeness == "frontier_expanded")
+    ).one()

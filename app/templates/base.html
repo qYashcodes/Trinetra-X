@@ -10,6 +10,10 @@
   <script defer src="/static/role-guard.js"></script>
   <script defer src="/static/vendor/alpine.min.js"></script>
   <script defer src="/static/app.js"></script>
+  {% set presence_capability = workstation_presence | default({'available': false}, true) %}
+  {% if user and presence_capability.available %}
+  <script type="module" src="/static/presence-detection.js"></script>
+  {% endif %}
   {% block page_scripts %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% endblock %} {{ 'authenticated-session' if user else 'public-session' }}"{% if user %} data-csrf-token="{{ csrf_token|default('') }}" data-work-context='{{ working_context|default({}) | tojson }}' data-navigation-routes='{{ navigation_routes|default({}) | tojson }}' data-role-view-registry='{{ role_view_registry|default({}) | tojson }}'{% endif %}>
@@ -18,6 +22,11 @@
 {% block authenticated %}
 {% set path = request.url.path %}
 {% set nav_case = active_case|default({}) %}
+{% set nav_gates = navigation_gates|default({}) %}
+{% set trace_gate = nav_gates.get('trace', {}) %}
+{% set canvas_gate = nav_gates.get('canvas', {}) %}
+{% set finding_gate = nav_gates.get('finding', {}) %}
+{% set notice_gate = nav_gates.get('notice', {}) %}
 <div class="app-frame">
   {% block masthead %}
   <header class="app-masthead">
@@ -51,11 +60,27 @@
       <a class="nav-item {{ 'active' if path == '/cases/live/new' else '' }}" href="/cases/live/new"><span>Live trace</span></a>
       <a class="nav-item {{ 'active' if path == '/docket' else '' }}" href="/docket" data-view-id="docket"><span>Case docket</span><b data-nav-count="case_docket">0</b></a>
       <div class="nav-group nav-group-investigations">Investigations</div>
-      <a class="nav-item {{ 'active' if path.startswith('/traces') else '' }}" href="/traces" data-view-id="trace"><span>Active traces</span><b data-nav-count="active_traces">0</b></a>
-      <a class="nav-item {{ 'active' if path.startswith('/cases/') and 'canvas' in path else '' }}" href="{{ '/cases/' ~ nav_case.id ~ '/canvas?snapshot=' ~ nav_case.snapshot_id if nav_case.id and nav_case.snapshot_id else ('/cases/' ~ nav_case.id ~ '/canvas' if nav_case.id else '/docket') }}"><span>Investigator canvas</span></a>
+      {% if trace_gate.get('enabled') and trace_gate.get('href') %}
+      <a class="nav-item {{ 'active' if path.startswith('/traces') else '' }}" href="{{ trace_gate.get('href') }}" data-view-id="trace"><span>Active traces</span><b data-nav-count="active_traces">0</b></a>
+      {% else %}
+      <span class="nav-item nav-disabled" aria-disabled="true" title="{{ trace_gate.get('reason') or 'Available after a case is ingested and trace is started.' }}"><span>Active traces</span><b data-nav-count="active_traces">0</b></span>
+      {% endif %}
+      {% if canvas_gate.get('enabled') and canvas_gate.get('href') %}
+      <a class="nav-item {{ 'active' if path.startswith('/cases/') and 'canvas' in path else '' }}" href="{{ canvas_gate.get('href') }}"><span>Investigator canvas</span></a>
+      {% else %}
+      <span class="nav-item nav-disabled" aria-disabled="true" title="{{ canvas_gate.get('reason') or 'Available after the active trace completes.' }}"><span>Investigator canvas</span></span>
+      {% endif %}
       <div class="nav-group nav-group-outputs">Outputs</div>
-      <a class="nav-item {{ 'active' if path.startswith('/findings') else '' }}" href="{{ '/findings/' ~ nav_case.finding_id if nav_case.finding_id else '/notices' }}"><span>Custody findings</span></a>
-      <a class="nav-item {{ 'active' if path.startswith('/notices') else '' }}" href="/notices" data-view-id="notice"><span>Freeze notices</span><b data-nav-count="freeze_notices">0</b></a>
+      {% if finding_gate.get('enabled') and finding_gate.get('href') %}
+      <a class="nav-item {{ 'active' if path.startswith('/findings') else '' }}" href="{{ finding_gate.get('href') }}"><span>Custody findings</span></a>
+      {% else %}
+      <span class="nav-item nav-disabled" aria-disabled="true" title="{{ finding_gate.get('reason') or 'Available once the trace has produced a custody finding.' }}"><span>Custody findings</span></span>
+      {% endif %}
+      {% if notice_gate.get('enabled') and notice_gate.get('href') %}
+      <a class="nav-item {{ 'active' if path.startswith('/notices') else '' }}" href="{{ notice_gate.get('href') }}" data-view-id="notice"><span>Freeze notices</span><b data-nav-count="freeze_notices">0</b></a>
+      {% else %}
+      <span class="nav-item nav-disabled" aria-disabled="true" title="{{ notice_gate.get('reason') or 'Available after a freeze notice draft is generated through the workflow.' }}"><span>Freeze notices</span><b data-nav-count="freeze_notices">0</b></span>
+      {% endif %}
       <a class="nav-item {{ 'active' if path.startswith('/dispatch-tracker') else '' }}" href="/dispatch-tracker"><span>Dispatch tracker</span></a>
       <div class="nav-group nav-group-tools">Tools</div>
       <a class="nav-item {{ 'active' if path.startswith('/risk-check') else '' }}" href="/risk-check"><span>Risk check</span></a>

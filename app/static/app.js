@@ -9,6 +9,15 @@
   const csrf = document.body?.dataset?.csrfToken || "";
   const navigationRoutes = parseBodyJson("navigationRoutes");
   let workingContext = parseBodyJson("workContext");
+  const authenticatedSession = document.body?.classList.contains("authenticated-session");
+
+  if (!authenticatedSession) {
+    try {
+      window.sessionStorage.removeItem("trinetraWorkingContext");
+    } catch (_error) {
+      // Public pages must not retain the previous officer's workspace context.
+    }
+  }
 
   const navDrawer = document.querySelector("[data-nav-drawer]");
   const navDrawerToggle = document.querySelector("[data-nav-drawer-toggle]");
@@ -30,13 +39,15 @@
   navDrawer?.addEventListener("click", (event) => {
     if (event.target.closest("a") && window.innerWidth < 1440) setNavDrawer(false);
   });
-  try {
-    const persisted = JSON.parse(window.sessionStorage.getItem("trinetraWorkingContext") || "null");
-    if (persisted && persisted.role === workingContext.role) {
-      workingContext = { ...workingContext, ...persisted, role: workingContext.role };
+  if (authenticatedSession) {
+    try {
+      const persisted = JSON.parse(window.sessionStorage.getItem("trinetraWorkingContext") || "null");
+      if (persisted && persisted.role === workingContext.role) {
+        workingContext = { ...workingContext, ...persisted, role: workingContext.role };
+      }
+    } catch (_error) {
+      // Server context remains canonical when sessionStorage is unavailable.
     }
-  } catch (_error) {
-    // Server context remains canonical when sessionStorage is unavailable.
   }
 
   const persistContext = (context) => {
@@ -123,7 +134,7 @@
       // Initial server-rendered links remain usable while disconnected.
     }
   };
-  if (document.body?.classList.contains("authenticated-session")) {
+  if (authenticatedSession) {
     refreshNavigationState();
     if (typeof EventSource !== "undefined") {
       const workspaceSource = new EventSource("/api/workspace/events");
@@ -290,24 +301,44 @@
   let locked = false;
   let ending = false;
 
-  const showShield = (warning) => {
+  const dispatchShieldState = (source) => {
+    window.dispatchEvent(new CustomEvent("trinetra:session-shield-change", {
+      detail: { locked, source },
+    }));
+  };
+
+  const showShield = (warning, customMessage, source = "idle") => {
+    const wasLocked = locked;
     locked = true;
     shield.hidden = false;
     document.body.classList.add("session-obscured");
     if (message) {
-      message.textContent = warning
-        ? "This session is about to end because the workstation has been idle."
-        : "Re-enter your active session to reveal case information.";
+      message.textContent = customMessage || (
+        warning
+          ? "This session is about to end because the workstation has been idle."
+          : "Re-enter your active session to reveal case information."
+      );
     }
     if (countdown) countdown.hidden = !warning;
+    if (!wasLocked) dispatchShieldState(source);
   };
 
   const hideShield = () => {
+    const wasLocked = locked;
     locked = false;
     shield.hidden = true;
     document.body.classList.remove("session-obscured");
     if (countdown) countdown.hidden = true;
+    if (wasLocked) dispatchShieldState("manual-resume");
   };
+
+  window.trinetraSessionShield = Object.freeze({
+    obscure: (customMessage, source = "external") => {
+      showShield(false, customMessage, source);
+    },
+    isLocked: () => locked,
+  });
+  window.dispatchEvent(new CustomEvent("trinetra:session-shield-ready"));
 
   const postSessionAction = async (url) => {
     const body = new URLSearchParams({ csrf_token: csrfToken });
@@ -351,13 +382,13 @@
       return;
     }
     if (idleMs >= warningMs) {
-      showShield(true);
+      showShield(true, undefined, "idle-warning");
       if (countdown) {
         countdown.textContent = `Session ends in ${Math.max(1, Math.ceil((timeoutMs - idleMs) / 1000))} seconds`;
       }
       return;
     }
-    if (idleMs >= obscureMs && !locked) showShield(false);
+    if (idleMs >= obscureMs && !locked) showShield(false, undefined, "idle");
   };
 
   const registerActivity = () => {

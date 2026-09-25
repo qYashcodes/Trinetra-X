@@ -1,0 +1,245 @@
+{% set narrative_summary = namespace(total=0, candidates=0, reviewed=0) %}
+{% for row in narrative_triage.rows %}
+  {% set narrative_summary.total = narrative_summary.total + 1 %}
+  {% if row.assessment and row.assessment.status == 'candidate' %}
+    {% set narrative_summary.candidates = narrative_summary.candidates + 1 %}
+  {% endif %}
+  {% if row.review %}
+    {% set narrative_summary.reviewed = narrative_summary.reviewed + 1 %}
+  {% endif %}
+{% endfor %}
+
+<section class="narrative-triage-panel" id="narrative-triage" aria-labelledby="narrative-triage-title">
+  <header class="narrative-panel-head">
+    <div class="narrative-titleblock">
+      <span>Semantic analysis</span>
+      <h2 id="narrative-triage-title">Reported narrative triage</h2>
+      <p>Deterministic indicators describe the reported narrative only. They do not establish identity, participation, custody or an offence, and they do not affect this trace.</p>
+    </div>
+    <div class="narrative-advisory" role="note">
+      <strong>Investigative aid</strong>
+      <span>Officer review required</span>
+    </div>
+  </header>
+
+  {% if not narrative_triage.gate.enabled %}
+  <div class="sentiment-preview" aria-label="Final sentiment analysis preview">
+    <section class="sentiment-hero">
+      <div>
+        <span>Demo preview only</span>
+        <h3>Final sentiment analysis preview</h3>
+        <p>This placeholder shows the intended officer-facing result using dummy data. It is not sourced from the complaint record and it does not affect trace execution.</p>
+      </div>
+      <dl>
+        <div>
+          <dt>Overall tone</dt>
+          <dd>Concerned, urgent</dd>
+        </div>
+        <div>
+          <dt>Reported typology</dt>
+          <dd>Investment scam indicators</dd>
+        </div>
+        <div>
+          <dt>Review state</dt>
+          <dd>Ready for IO confirmation</dd>
+        </div>
+      </dl>
+    </section>
+
+    <div class="sentiment-score-grid">
+      <article>
+        <span>Urgency</span>
+        <strong>High</strong>
+        <div class="sentiment-meter high"><i></i></div>
+        <p>Repeated references to immediate payment pressure and time-bound follow-up.</p>
+      </article>
+      <article>
+        <span>Financial distress</span>
+        <strong>Moderate</strong>
+        <div class="sentiment-meter medium"><i></i></div>
+        <p>Reported loss is material, with follow-up request for recovery guidance.</p>
+      </article>
+      <article>
+        <span>Coercive language</span>
+        <strong>Low</strong>
+        <div class="sentiment-meter low"><i></i></div>
+        <p>No direct threat terms in this demonstration preview.</p>
+      </article>
+    </div>
+
+    <section class="sentiment-findings">
+      <div>
+        <span>Primary narrative pattern</span>
+        <strong>Promise of guaranteed return followed by additional transfer requests.</strong>
+        <p>Dummy indicator groups: investment pitch, platform deposit, withdrawal blockage, support-agent pressure.</p>
+      </div>
+      <div>
+        <span>Suggested IO handling</span>
+        <strong>Verify source text, confirm reported typology, then proceed with trace.</strong>
+        <p>Keep the typology as a reported-narrative aid. It is not custody attribution, account identity or an offence finding.</p>
+      </div>
+    </section>
+
+    <section class="sentiment-evidence-preview">
+      <header>
+        <h3>Dummy indicator summary</h3>
+        <span>4 groups shown</span>
+      </header>
+      <ul>
+        <li><b>Investment pitch</b><span>guaranteed return, trading platform, account manager</span></li>
+        <li><b>Payment pressure</b><span>complete deposit today, unlock wallet, verification fee</span></li>
+        <li><b>Withdrawal barrier</b><span>tax clearance, blocked withdrawal, pending release</span></li>
+        <li><b>Officer note</b><span>review source before recording final typology</span></li>
+      </ul>
+    </section>
+  </div>
+  {% else %}
+  <div class="narrative-workflow-strip" aria-label="Semantic analysis workflow">
+    <div class="complete">
+      <span>1</span>
+      <strong>Source intake</strong>
+      <small>{{ narrative_summary.total }} protected {{ 'source' if narrative_summary.total == 1 else 'sources' }}</small>
+    </div>
+    <div class="{{ 'attention' if narrative_summary.candidates else 'neutral' }}">
+      <span>2</span>
+      <strong>Indicator pass</strong>
+      <small>{% if narrative_summary.candidates %}{{ narrative_summary.candidates }} {{ 'source' if narrative_summary.candidates == 1 else 'sources' }} flagged for review{% else %}No deterministic category met{% endif %}</small>
+    </div>
+    <div class="{{ 'complete' if narrative_summary.reviewed else ('attention' if narrative_triage.gate.enabled else 'locked') }}">
+      <span>3</span>
+      <strong>IO review</strong>
+      <small>{% if narrative_summary.reviewed %}{{ narrative_summary.reviewed }} {{ 'review' if narrative_summary.reviewed == 1 else 'reviews' }} recorded{% elif narrative_triage.gate.enabled %}Record officer decision{% else %}Review gate unavailable{% endif %}</small>
+    </div>
+  </div>
+
+  {% if narrative_triage.rows %}
+  <div class="narrative-records">
+    {% for row in narrative_triage.rows %}
+    {% set source = row.narrative %}
+    {% set assessment = row.assessment %}
+    {% set review = row.review %}
+    {% set result = assessment.result_json if assessment else {} %}
+    <article class="narrative-record {{ assessment.status if assessment else 'not-assessed' }}">
+      <div class="narrative-source-row">
+        <div class="narrative-source-title">
+          <span aria-hidden="true">SRC</span>
+          <div>
+            <strong>{{ source.original_name }}</strong>
+            <small>{{ source.source_kind | labelize }} · {{ source.language | upper }} · {{ source.extraction_status | labelize }}</small>
+          </div>
+        </div>
+        <a href="/cases/{{ case.id }}/narratives/{{ source.id }}/source">Open protected source</a>
+      </div>
+
+      <div class="narrative-io-grid">
+        <section>
+          <span>Source</span>
+          <dl>
+            <div><dt>SHA-256</dt><dd class="mono">{{ source.source_sha256[:16] }}…</dd></div>
+            <div><dt>Status</dt><dd>{{ source.extraction_status | labelize }}</dd></div>
+          </dl>
+        </section>
+        <section>
+          <span>Analysis</span>
+          <dl>
+            <div><dt>Analyzer</dt><dd class="mono">{{ assessment.analyzer_revision if assessment else 'not assessed' }}</dd></div>
+            <div><dt>Taxonomy</dt><dd class="mono">{{ assessment.taxonomy_revision if assessment else 'not assessed' }}</dd></div>
+          </dl>
+        </section>
+        <section>
+          <span>Officer action</span>
+          {% if review %}
+          <p>Review recorded by {{ review.reviewer_pis }} at {{ review.created_ts_ms | ist }}.</p>
+          {% elif narrative_triage.gate.enabled and assessment %}
+          <p>Review the indicator basis and record the accepted reported typology.</p>
+          {% elif narrative_triage.gate.enabled %}
+          <p>Assessment is not available for this source.</p>
+          {% else %}
+          <p>Review controls are unavailable until the narrative gates are enabled.</p>
+          {% endif %}
+        </section>
+      </div>
+
+      {% if assessment %}
+      <div class="narrative-status {{ assessment.status }}">
+        <strong>{{ assessment.status | labelize }}</strong>
+        <span>{{ result.get('reason', source.extraction_detail) }}</span>
+      </div>
+      {% if result.get('candidates') %}
+      <div class="narrative-candidates">
+        {% for candidate in result.candidates %}
+        <section>
+          <strong>{{ candidate.label }}</strong>
+          <span>{{ candidate.basis | labelize }} · {{ candidate.evidence_groups | length }} evidence groups</span>
+          {% if candidate.reasoning %}<p class="narrative-reasoning">{{ candidate.reasoning }}</p>{% endif %}
+          <ul>
+            {% for indicator in candidate.indicators %}
+            <li><span>{{ indicator.term }}</span><small class="mono">{{ indicator.group | labelize }}{% if indicator.page %} · page {{ indicator.page }}{% endif %}</small></li>
+            {% endfor %}
+          </ul>
+        </section>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% if result.get('negated_indicators') %}
+      <details class="narrative-negated">
+        <summary>Negated mentions excluded ({{ result.negated_indicators | length }})</summary>
+        <ul>{% for indicator in result.negated_indicators %}<li>{{ indicator.term }}{% if indicator.page %} · page {{ indicator.page }}{% endif %}</li>{% endfor %}</ul>
+      </details>
+      {% endif %}
+
+      {% if narrative_triage.gate.enabled %}
+      <form method="post" action="/cases/{{ case.id }}/narrative-assessments/{{ assessment.id }}/review" class="narrative-review-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <fieldset>
+          <legend>Accepted reported typologies</legend>
+          <div class="narrative-checkboxes">
+            {% for option in narrative_triage.typologies %}
+            <label><input type="checkbox" name="accepted_typologies" value="{{ option.key }}"{% if review and option.key in review.accepted_typologies %} checked{% endif %}>{{ option.label }}</label>
+            {% endfor %}
+          </div>
+        </fieldset>
+        <label>Primary typology
+          <select name="primary_typology">
+            <option value="none">None / unknown</option>
+            {% for option in narrative_triage.typologies %}
+            <option value="{{ option.key }}"{% if review and review.primary_typology == option.key %} selected{% endif %}>{{ option.label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Review note
+          <textarea name="review_note" maxlength="1000" rows="2">{{ review.note if review and review.note else '' }}</textarea>
+        </label>
+        <button type="submit">Record officer review</button>
+        {% if review %}<small>Latest review recorded by {{ review.reviewer_pis }} at {{ review.created_ts_ms | ist }}.</small>{% endif %}
+      </form>
+      {% elif review %}
+      <p class="narrative-gated">Latest review: {{ review.primary_typology | default('none / unknown', true) | labelize }} by {{ review.reviewer_pis }}.</p>
+      {% endif %}
+      {% endif %}
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="narrative-empty">No complaint narrative source has been recorded for this case.</p>
+  {% endif %}
+
+  {% if narrative_triage.gate.enabled %}
+  <form method="post" action="/cases/{{ case.id }}/narratives" enctype="multipart/form-data" class="narrative-upload-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="language" value="en">
+    <div>
+      <label for="narrative-text-{{ case.id }}">English narrative text</label>
+      <textarea id="narrative-text-{{ case.id }}" name="narrative_text" maxlength="100000" rows="4" placeholder="Paste the victim-supplied narrative exactly as recorded."></textarea>
+    </div>
+    <span>or</span>
+    <div>
+      <label for="narrative-file-{{ case.id }}">Searchable complaint PDF</label>
+      <input id="narrative-file-{{ case.id }}" type="file" name="file" accept="application/pdf,.pdf">
+      <small>PDF only, up to 10 MB. OCR is not enabled.</small>
+    </div>
+    <button type="submit">Add narrative source</button>
+  </form>
+  {% endif %}
+  {% endif %}
+</section>

@@ -51,6 +51,71 @@ class Case(SQLModel, table=True):
     updated_ts_ms: int
 
 
+class ComplaintNarrative(SQLModel, table=True):
+    __table_args__ = (
+        UniqueConstraint(
+            "case_id",
+            "source_kind",
+            "source_ref",
+            "source_sha256",
+            name="uq_complaintnarrative_case_source_hash",
+        ),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    case_id: int = Field(index=True, foreign_key="case.id")
+    source_kind: str = Field(index=True)
+    source_ref: str = Field(index=True)
+    language: str = Field(default="und", index=True)
+    original_name: str
+    mime_type: str
+    size_bytes: int
+    source_sha256: str = Field(index=True)
+    storage_ref: str
+    extracted_text_sha256: str | None = Field(default=None, index=True)
+    extracted_text_ref: str | None = None
+    extraction_status: str = Field(index=True)
+    extraction_revision: str
+    extraction_detail: str
+    provenance: str
+    retrieved_ts_ms: int
+    created_by_pis: str = Field(index=True)
+    created_ts_ms: int
+    superseded_by_id: int | None = Field(default=None, foreign_key="complaintnarrative.id")
+
+
+class NarrativeAssessment(SQLModel, table=True):
+    __table_args__ = (
+        UniqueConstraint(
+            "narrative_id",
+            "analyzer_revision",
+            "taxonomy_revision",
+            name="uq_narrativeassessment_revision",
+        ),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    case_id: int = Field(index=True, foreign_key="case.id")
+    narrative_id: int = Field(index=True, foreign_key="complaintnarrative.id")
+    status: str = Field(index=True)
+    analyzer_revision: str
+    taxonomy_revision: str
+    result_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    result_sha256: str = Field(index=True)
+    created_ts_ms: int
+
+
+class NarrativeAssessmentReview(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    case_id: int = Field(index=True, foreign_key="case.id")
+    assessment_id: int = Field(index=True, foreign_key="narrativeassessment.id")
+    accepted_typologies: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    primary_typology: str | None = Field(default=None, index=True)
+    reviewer_pis: str = Field(index=True)
+    note: str | None = None
+    created_ts_ms: int
+
+
 class OfficerProfile(SQLModel, table=True):
     """Stable officer identity used for assignment and escalation scope.
 

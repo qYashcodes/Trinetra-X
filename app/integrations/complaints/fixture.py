@@ -60,7 +60,7 @@ class FixtureComplaintSource:
         This deliberately extends the complaint-source boundary instead of
         introducing a second portal client. It never represents live retrieval.
         """
-        if document_type not in {"complaint", "fir"} or self.fetch(ack_no) is None:
+        if document_type not in {"complaint", "fir", "portal_uploads"} or self.fetch(ack_no) is None:
             return None
         from reportlab.lib.pagesizes import A4
         from reportlab.pdfgen.canvas import Canvas
@@ -73,7 +73,12 @@ class FixtureComplaintSource:
         canvas.setFont("Helvetica", 11)
         canvas.drawString(54, height - 94, f"Reference: {ack_no}")
         canvas.drawString(54, height - 114, f"Type: {document_type.title()}")
-        canvas.drawString(54, height - 144, "Fixture source only — not retrieved from NCRP or CCTNS.")
+        detail = (
+            "Victim-supplied portal upload bundle: payment screenshot, bank note and chat extract."
+            if document_type == "portal_uploads"
+            else "Fixture source only — not retrieved from NCRP or CCTNS."
+        )
+        canvas.drawString(54, height - 144, detail)
         canvas.setFillColorRGB(0.8, 0.1, 0.1, alpha=0.16)
         canvas.setFont("Helvetica-Bold", 42)
         canvas.saveState()
@@ -89,3 +94,19 @@ class FixtureComplaintSource:
             "provenance": "Fixture complaint-source adapter; simulated portal document",
             "simulated": True,
         }
+
+    def fetch_narrative(self, ack_no: str) -> dict | None:
+        """The protected canonical fixture has no structured victim narrative."""
+        if self.fetch(ack_no) is None:
+            return None
+        return None
+
+    def fetch_documents(self, ack_no: str) -> list[dict]:
+        if self.fetch(ack_no) is None:
+            return []
+        documents = []
+        for slot in ("complaint", "fir", "portal_uploads"):
+            document = self.fetch_document(ack_no, slot)
+            if document is not None:
+                documents.append({"slot": slot, "source": "fixture_complaint_source", **document})
+        return documents

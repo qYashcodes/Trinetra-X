@@ -98,6 +98,7 @@ CASE_STAGE_BY_TERMINAL = {
     "vasp_deposit": "custody_found",
     "verified_custody": "custody_found",
     "custody_candidate": "custody_candidate",
+    "ambiguous_seed": "trace_failed",
     "live_seed_verified": "trace_incomplete",
     "unsupported_chain": "trace_unsupported",
     "invalid_seed": "trace_failed",
@@ -654,6 +655,15 @@ def _live_trace_result(
     family: str,
     case: dict,
 ) -> TraceResult:
+    if family == "EVM":
+        from engine.runtime import evm_engine
+
+        return evm_engine.run_trace(seed, params, family=family, case=case)
+    if family == "BTC":
+        from engine.runtime import btc_engine
+
+        return btc_engine.run_trace(seed, params, family=family, case=case)
+
     validation_terminal = _live_seed_terminal(seed, family)
     missing_required_seed = validation_terminal and validation_terminal.get("reason") in {
         "amount_required",
@@ -675,17 +685,13 @@ def _live_trace_result(
     live_flag = flags["live_tron_provider"]
     live_trace_flag = flags["live_tron_trace"]
     if not live_flag["enabled"]:
-        return _closed_result(
+        return _provider_error_result(
             seed,
             params,
-            terminal={
-                "kind": "provider_error",
-                "reason": "live_gate_unmet",
-                "family": family,
-                "note": live_flag["blocked_reason"],
-            },
             family=family,
             case=case,
+            reason="live_gate_unmet",
+            note=live_flag["blocked_reason"],
         )
     if validation_terminal:
         return _closed_result(
@@ -791,17 +797,13 @@ def _live_trace_result(
         )
     except (tron.ProviderConfigurationError, tron.ProviderResponseError) as exc:
         reason = getattr(exc, "error_kind", "provider_configuration")
-        return _closed_result(
+        return _provider_error_result(
             seed,
             params,
-            terminal={
-                "kind": "provider_error",
-                "reason": reason,
-                "family": family,
-                "note": str(exc),
-            },
             family=family,
             case=case,
+            reason=reason,
+            note=str(exc),
         )
 
     if live_trace_flag["enabled"]:
@@ -822,17 +824,13 @@ def _live_trace_result(
             )
         except (tron.ProviderConfigurationError, tron.ProviderResponseError) as exc:
             reason = getattr(exc, "error_kind", "provider_configuration")
-            return _closed_result(
+            return _provider_error_result(
                 seed,
                 params,
-                terminal={
-                    "kind": "provider_error",
-                    "reason": reason,
-                    "family": family,
-                    "note": str(exc),
-                },
                 family=family,
                 case=case,
+                reason=reason,
+                note=str(exc),
             )
 
     outgoing = _live_outgoing_rows(
@@ -1374,78 +1372,45 @@ def _attribute_live_outgoing_edges(
     *,
     amount_base: int,
 ) -> tuple[list[dict], int]:
-    from app.services.allocation import allocate_proportional
+    from app.services.allocation import allocate_ordered_outgoing
 
-    outgoing_total = sum(max(0, _int_or_zero(row.get("amount_base"))) for row in outgoing)
-    balance_base = max(amount_base, outgoing_total)
-    attributed_base = amount_base
-    residual_numerator = 0
+    allocation = allocate_ordered_outgoing(
+        (
+            max(0, _int_or_zero(row.get("amount_base")))
+            for row in outgoing
+        ),
+        attributed_base=amount_base,
+    )
     attributed_edges: list[dict] = []
 
-    for index, row in enumerate(outgoing):
-        outgoing_base = max(0, _int_or_zero(row.get("amount_base")))
+    for index, (row, ordered_step) in enumerate(zip(outgoing, allocation.steps)):
+        result = ordered_step.result
         edge = dict(row)
         edge["event_order"] = index
         edge["stable_id"] = _live_edge_ref(edge, index)
-        if balance_base <= 0 or attributed_base <= 0:
-            edge["attributed_base"] = 0
-            edge["residual_numerator"] = residual_numerator
-            edge["allocation"] = {
-                "policy": "integer_proportional",
-                "version": "trinetra.allocation/1",
-                "incoming_attributed_base": attributed_base,
-                "observed_outgoing_base": outgoing_base,
-                "denominator_base": balance_base,
-                "numerator_base": None,
-                "outgoing_attributed_base": 0,
-                "residual_before": residual_numerator,
-                "residual_numerator": residual_numerator,
-                "remaining_balance_base": balance_base,
-                "remaining_attributed_base": attributed_base,
-                "initial_balance_basis": {
-                    "incoming_attributed_base": amount_base,
-                    "observed_outgoing_total_base": outgoing_total,
-                    "denominator_base": max(amount_base, outgoing_total),
-                },
-            }
-            attributed_edges.append(edge)
-            continue
-        balance_before = balance_base
-        attributed_before = attributed_base
-        residual_before = residual_numerator
-        numerator = outgoing_base * attributed_before + residual_before
-        step = allocate_proportional(
-            balance_base=balance_before,
-            attributed_base=attributed_before,
-            outgoing_base=outgoing_base,
-            residual_numerator=residual_before,
-        )
-        edge["attributed_base"] = step.outgoing_attributed_base
-        edge["residual_numerator"] = step.residual_numerator
+        edge["attributed_base"] = result.outgoing_attributed_base
+        edge["residual_numerator"] = result.residual_numerator
         edge["allocation"] = {
             "policy": "integer_proportional",
             "version": "trinetra.allocation/1",
-            "incoming_attributed_base": attributed_before,
-            "observed_outgoing_base": outgoing_base,
-            "denominator_base": balance_before,
-            "numerator_base": numerator,
-            "outgoing_attributed_base": step.outgoing_attributed_base,
-            "residual_before": residual_before,
-            "residual_numerator": step.residual_numerator,
-            "remaining_balance_base": step.remaining_balance_base,
-            "remaining_attributed_base": step.remaining_attributed_base,
+            "incoming_attributed_base": ordered_step.attributed_before,
+            "observed_outgoing_base": ordered_step.outgoing_base,
+            "denominator_base": ordered_step.balance_before,
+            "numerator_base": ordered_step.numerator_base,
+            "outgoing_attributed_base": result.outgoing_attributed_base,
+            "residual_before": ordered_step.residual_before,
+            "residual_numerator": result.residual_numerator,
+            "remaining_balance_base": result.remaining_balance_base,
+            "remaining_attributed_base": result.remaining_attributed_base,
             "initial_balance_basis": {
                 "incoming_attributed_base": amount_base,
-                "observed_outgoing_total_base": outgoing_total,
-                "denominator_base": max(amount_base, outgoing_total),
+                "observed_outgoing_total_base": allocation.outgoing_total_base,
+                "denominator_base": allocation.initial_balance_base,
             },
         }
         attributed_edges.append(edge)
-        balance_base = step.remaining_balance_base
-        attributed_base = step.remaining_attributed_base
-        residual_numerator = step.residual_numerator
 
-    return attributed_edges, attributed_base
+    return attributed_edges, allocation.remaining_attributed_base
 
 
 def _schedule_live_edges(
@@ -1714,6 +1679,29 @@ def _live_seed_terminal(seed: TraceSeed, family: str) -> dict | None:
             "note": "Payment transaction hash must be a 64-character hex string.",
         }
     return None
+
+
+def _provider_error_result(
+    seed: TraceSeed,
+    params: TraceParams,
+    *,
+    family: str,
+    case: dict,
+    reason: str,
+    note: str,
+) -> TraceResult:
+    return _closed_result(
+        seed,
+        params,
+        terminal={
+            "kind": "provider_error",
+            "reason": reason,
+            "family": family,
+            "note": note,
+        },
+        family=family,
+        case=case,
+    )
 
 
 def _closed_result(

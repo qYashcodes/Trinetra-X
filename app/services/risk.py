@@ -13,6 +13,7 @@ from app.services.behavior import (
 from app.services.demo import demo_case
 from app.services.evidence_store import provider_evidence_scope
 from app.services.hash import canonical_json_bytes, sha256_bytes, sha256_json
+from app.services.ml_model import disabled_wallet_model_status, ml_feature_vector_preview
 from app.services.time import now_ms
 
 
@@ -289,11 +290,13 @@ def risk_check(address: str, *, notice_state: dict | None = None) -> dict:
             "probability_enabled": False,
             "score_kind": "fixture_evidence_band",
             "calibration_status": "disabled_pending_independent_labelled_data",
+            "ml_model": disabled_wallet_model_status(),
             "evidence_band_value": _BAND_VALUES.get(result["band"], "Inconclusive"),
             "evidence_band_caption": "fixture evidence band",
             "mode": "fixture",
             "features": [],
             "feature_set": None,
+            "ml_feature_preview": ml_feature_vector_preview(None),
             "methodology": band_methodology(),
             "attribution_evidence": [
                 {
@@ -540,7 +543,7 @@ def _live_result(
         }
         for record in provider_records
     ]
-    return {
+    result = {
         "schema": "trinetra.risk_check/2",
         "lookup_ref": lookup_ref,
         "mode": "live",
@@ -585,6 +588,9 @@ def _live_result(
         "probability_enabled": False,
         "score_kind": "not_scored",
         "calibration_status": "disabled_pending_independent_labelled_data",
+        "ml_model": disabled_wallet_model_status(
+            feature_revision=feature_set.get("schema")
+        ),
         "evidence_band_value": _BAND_VALUES.get(band, "Inconclusive"),
         "evidence_band_caption": "documented evidence band",
         "feature_set": feature_set,
@@ -594,6 +600,8 @@ def _live_result(
         "attribution_evidence": attribution_evidence,
         "provider_evidence": safe_provider_records,
     }
+    result["ml_feature_preview"] = ml_feature_vector_preview(result)
+    return result
 
 
 def _live_signal_details(

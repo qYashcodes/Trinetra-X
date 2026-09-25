@@ -19,3 +19,27 @@
   padding: 8px;
   font: inherit;
 }
+
+.notice-page button.notice-outline,
+.notice-page a.notice-outline {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 13px;
+  border: 1px solid #12325e;
+  border-radius: 7px;
+  background: transparent;
+  color: #12325e;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 400;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.notice-page button.notice-outline:hover,
+.notice-page a.notice-outline:hover {
+  background: rgba(18, 50, 94, .06);
+  color: #111a2b;
+}

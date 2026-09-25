@@ -1,4 +1,5 @@
 {% set idle = session_idle | default({'obscure_seconds': 120, 'warning_seconds': 780, 'timeout_seconds': 900}, true) %}
+{% set presence = workstation_presence | default({'available': false}, true) %}
 {% set switch_next_url = (request.url.path ~ ('?' ~ request.url.query if request.url.query else '')) if request is defined else '/docket' %}
 <header
   class="session-controls"
@@ -19,6 +20,28 @@
       <small>{{ (user.role if user.role is defined else 'Officer') | replace('_', ' ') | title }} · {{ user.desk }}</small>
     </span>
   </div>
+  {% if presence.available %}
+  <div
+    class="presence-control"
+    data-presence-controls
+    data-presence-enabled="{{ 'true' if presence.enabled_for_session else 'false' }}"
+    data-presence-absence-ms="{{ presence.absence_ms }}"
+    data-presence-check-interval-ms="{{ presence.check_interval_ms }}"
+    data-presence-resume-grace-ms="{{ presence.resume_grace_ms }}"
+  >
+    <div class="presence-copy">
+      <span data-presence-status role="status">{{ 'Starting' if presence.enabled_for_session else 'Off' }}</span>
+      <small data-presence-detail>On-device face presence only; not identity or liveness verification.</small>
+    </div>
+    <button
+      class="presence-toggle"
+      type="button"
+      aria-pressed="{{ 'true' if presence.enabled_for_session else 'false' }}"
+      data-presence-toggle
+    >{{ 'Disable presence' if presence.enabled_for_session else 'Enable presence' }}</button>
+    <button class="presence-retry" type="button" data-presence-retry hidden>Retry</button>
+  </div>
+  {% endif %}
   <a class="session-link" href="/sessions">Sessions</a>
   {% if user.role == 'supervisor' %}
   <span class="session-role-banner" role="status">Acting as ACP countersignature officer</span>

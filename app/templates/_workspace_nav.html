@@ -1,6 +1,11 @@
 <button class="workspace-nav-toggle" type="button" aria-expanded="false" aria-controls="workspace-nav-drawer" data-nav-drawer-toggle><span aria-hidden="true">☰</span><span class="sr-only">Open navigation</span></button>
 <nav class="workspace-nav" id="workspace-nav-drawer" aria-label="Main" data-nav-drawer>
   {% set nav_case = active_case|default({}) %}
+  {% set nav_gates = navigation_gates|default({}) %}
+  {% set trace_gate = nav_gates.get('trace', {}) %}
+  {% set canvas_gate = nav_gates.get('canvas', {}) %}
+  {% set finding_gate = nav_gates.get('finding', {}) %}
+  {% set notice_gate = nav_gates.get('notice', {}) %}
   <div class="workspace-tricolour" aria-hidden="true"><i></i><i></i><i></i></div>
   <div class="workspace-nav-brand">
     <span class="workspace-nav-mark">त्रि</span>
@@ -15,18 +20,35 @@
     </section>
     <section>
       <h2 class="workspace-nav-group-investigations">Investigations</h2>
-      <a class="{{ 'active' if active_page == 'traces' else '' }}" href="/traces" data-view-id="trace"><span>Active traces</span><b data-nav-count="active_traces">0</b></a>
-      <a class="{{ 'active' if active_page == 'canvas' else '' }}" href="{{ '/cases/' ~ nav_case.id ~ '/canvas?snapshot=' ~ nav_case.snapshot_id if nav_case.id and nav_case.snapshot_id else ('/cases/' ~ nav_case.id ~ '/canvas' if nav_case.id else '/docket') }}"><span>Investigator canvas</span></a>
+      {% if trace_gate.get('enabled') and trace_gate.get('href') %}
+      <a class="{{ 'active' if active_page == 'traces' else '' }}" href="{{ trace_gate.get('href') }}" data-view-id="trace"><span>Active traces</span><b data-nav-count="active_traces">0</b></a>
+      {% else %}
+      <span class="nav-locked" aria-disabled="true" title="{{ trace_gate.get('reason') or 'Available after a case is ingested and trace is started.' }}"><span>Active traces</span><b data-nav-count="active_traces">0</b></span>
+      {% endif %}
+      {% if canvas_gate.get('enabled') and canvas_gate.get('href') %}
+      <a class="{{ 'active' if active_page == 'canvas' else '' }}" href="{{ canvas_gate.get('href') }}"><span>Investigator canvas</span></a>
+      {% else %}
+      <span class="nav-locked" aria-disabled="true" title="{{ canvas_gate.get('reason') or 'Available after the active trace completes.' }}"><span>Investigator canvas</span></span>
+      {% endif %}
     </section>
     <section>
       <h2 class="workspace-nav-group-outputs">Outputs</h2>
-      <a class="{{ 'active' if active_page == 'finding' else '' }}" href="{{ '/findings/' ~ nav_case.finding_id if nav_case.finding_id else '/notices' }}"><span>Custody findings</span></a>
-      <a class="{{ 'active' if active_page == 'notice' else '' }}" href="/notices" data-view-id="notice"><span>Freeze notices</span><b data-nav-count="freeze_notices">0</b></a>
+      {% if finding_gate.get('enabled') and finding_gate.get('href') %}
+      <a class="{{ 'active' if active_page == 'finding' else '' }}" href="{{ finding_gate.get('href') }}"><span>Custody findings</span></a>
+      {% else %}
+      <span class="nav-locked" aria-disabled="true" title="{{ finding_gate.get('reason') or 'Available once the trace has produced a custody finding.' }}"><span>Custody findings</span></span>
+      {% endif %}
+      {% if notice_gate.get('enabled') and notice_gate.get('href') %}
+      <a class="{{ 'active' if active_page == 'notice' else '' }}" href="{{ notice_gate.get('href') }}" data-view-id="notice"><span>Freeze notices</span><b data-nav-count="freeze_notices">0</b></a>
+      {% else %}
+      <span class="nav-locked" aria-disabled="true" title="{{ notice_gate.get('reason') or 'Available after a freeze notice draft is generated through the workflow.' }}"><span>Freeze notices</span><b data-nav-count="freeze_notices">0</b></span>
+      {% endif %}
       <a class="{{ 'active' if active_page == 'dispatch_tracker' else '' }}" href="/dispatch-tracker"><span>Dispatch tracker</span></a>
     </section>
     <section>
       <h2 class="workspace-nav-group-tools">Tools</h2>
       <a class="{{ 'active' if active_page == 'risk' else '' }}" href="/risk-check"><span>Risk check</span></a>
+      <a class="{{ 'active' if active_page == 'ml_lab' else '' }}" href="/ml-lab"><span>ML lab</span></a>
     </section>
     <section>
       <h2 class="workspace-nav-group-devtools">Developer tools</h2>

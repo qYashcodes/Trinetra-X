@@ -68,9 +68,13 @@ def test_workflow_screens_render_canonical_case_evidence(workflow_client: TestCl
         assert hop["address"] in finding
 
     assert case["reported_address"] in trace
+    assert 'data-final-duration-seconds="10"' in trace
     assert f'data-address="{terminal["deposit_address"]}"' in finding
     assert f'data-deposit-address="{terminal["deposit_address"]}"' in canvas
     assert f'data-hot-wallet-address="{terminal["hot_wallet"]}"' in canvas
+    assert f"Hop {hops[-1]['hop']} of the recorded trace" in finding
+    assert "<span>Custody hop</span><b class=\"mono\">H4</b>" in finding
+    assert format_amount(terminal["amount_credited_base"]) in finding
 
     review_keys = [item["key"] for item in data["finding_review_checks"]]
     prepared = workflow_client.post(

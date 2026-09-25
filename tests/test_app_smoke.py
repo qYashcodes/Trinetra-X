@@ -135,6 +135,8 @@ def test_fixture_workflow_pages_render() -> None:
         assert incomplete.text.count('data-particular-state="complete"') == 6
         assert incomplete.text.count('data-particular-state="missing"') == 2
         assert incomplete.text.count("Manual addition required") == 2
+        assert incomplete.text.count('class="manual-particular-editor"') == 2
+        assert 'action="/cases/manual-particular"' in incomplete.text
         assert 'action="/cases/start"' not in incomplete.text
 
         docket = client.get("/docket")
@@ -158,7 +160,13 @@ def test_fixture_workflow_pages_render() -> None:
         assert "Evidence bundle" in docket.text
         assert "Integration status" in docket.text
         assert "Switch to dark console" not in docket.text
-        assert 'href="/notices"' in docket.text
+        assert 'href="/traces" data-view-id="trace"' not in docket.text
+        assert re.search(r'<span class="nav-item nav-disabled"[^>]*>\s*<span>Active traces</span>', docket.text)
+        assert re.search(r'<span class="nav-item nav-disabled"[^>]*>\s*<span>Investigator canvas</span>', docket.text)
+        assert re.search(r'<span class="nav-item nav-disabled"[^>]*>\s*<span>Custody findings</span>', docket.text)
+        assert 'href="/notices" data-view-id="notice"' not in docket.text
+        assert 'aria-disabled="true"' in docket.text
+        assert "<span>Freeze notices</span>" in docket.text
         assert 'href="/notices/1"' not in docket.text
 
         integrations = client.get("/integrations")
@@ -173,7 +181,9 @@ def test_fixture_workflow_pages_render() -> None:
         assert trace.status_code == 200
         assert "Live trace complete" in trace.text
         assert "data-progress-value" not in trace.text
-        assert "data-progress-stage" in trace.text
+        assert "data-progress-stage" not in trace.text
+        assert "Trace under effect" in trace.text
+        assert "data-elapsed" in trace.text
 
         canvas = client.get("/cases/1/canvas?snapshot=1")
         assert canvas.status_code == 200
@@ -192,6 +202,15 @@ def test_fixture_workflow_pages_render() -> None:
         )
         assert risk.status_code == 200
         assert "Investigative signals found" in risk.text
+        assert "ML model status" in risk.text
+        assert "ML feature vector preview" in risk.text
+        assert "wallet-risk-v1" in risk.text
+
+        ml_lab = client.get("/ml-lab")
+        assert ml_lab.status_code == 200
+        assert "Embedded ML workflow" in ml_lab.text
+        assert "Offline replay" in ml_lab.text
+        assert "wallet-risk-v1" in ml_lab.text
 
         checks = client.post(
             "/findings/1/checks",
@@ -255,6 +274,7 @@ def test_ingested_reference_becomes_active_working_case() -> None:
         assert "NCRP/2026/MH/0091001" in docket.text
         assert "Working case" in docket.text
         assert 'data-active-case="true"' in docket.text
+        assert 'href="/traces" data-view-id="trace"' in docket.text
         canvas_match = re.search(r'href="/cases/(\d+)/canvas\?snapshot=' + snapshot_id + r'"', docket.text)
         assert canvas_match
         case_id = canvas_match.group(1)
@@ -264,6 +284,61 @@ def test_ingested_reference_becomes_active_working_case() -> None:
         canvas = client.get(f"/cases/{case_id}/canvas")
         assert canvas.status_code == 200
         assert "NCRP/2026/MH/0091001" in canvas.text
+
+
+def test_incomplete_fixture_case_can_be_completed_with_manual_particulars() -> None:
+    from app.services.demo import demo_case
+
+    with TestClient(app) as client:
+        client.post("/auth/prototype", data={"role": "io"})
+        intake_token = csrf_from(client.get("/cases/new").text)
+
+        incomplete = client.post(
+            "/cases/ingest",
+            data={"ack_no": "NCRP/2026/MH/0091002", "csrf_token": intake_token},
+        )
+        assert incomplete.status_code == 200
+        assert "6 of 8 particulars" in incomplete.text
+        assert 'action="/cases/start"' not in incomplete.text
+
+        with_hash = client.post(
+            "/cases/manual-particular",
+            data={
+                "ack_no": "NCRP/2026/MH/0091002",
+                "field": "payment_txid",
+                "value": demo_case()["case"]["payment_txid"],
+                "csrf_token": csrf_from(incomplete.text),
+            },
+        )
+        assert with_hash.status_code == 200
+        assert "7 of 8 particulars" in with_hash.text
+        assert 'action="/cases/start"' not in with_hash.text
+
+        completed = client.post(
+            "/cases/manual-particular",
+            data={
+                "ack_no": "NCRP/2026/MH/0091002",
+                "field": "complainant_contact_redacted",
+                "value": "Contact note verified by IO",
+                "csrf_token": csrf_from(with_hash.text),
+            },
+        )
+        assert completed.status_code == 200
+        assert "8 of 8 particulars" in completed.text
+        assert "Case loaded" in completed.text
+        assert 'action="/cases/start"' in completed.text
+
+        started = client.post(
+            "/cases/start",
+            data={
+                "ack_no": "NCRP/2026/MH/0091002",
+                "reviewed": "yes",
+                "csrf_token": csrf_from(completed.text),
+            },
+            follow_redirects=False,
+        )
+        assert started.status_code == 303
+        assert re.fullmatch(r"/traces/\d+", started.headers["location"])
 
 
 def test_fixture_ingest_replays_demo_trace_in_live_mode(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -352,6 +427,14 @@ def test_api_contracts() -> None:
         assert status_data["feature_flags"]["truthful_trace_result"]["enabled"] is True
         assert status_data["feature_flags"]["live_tron_provider"]["enabled"] is False
         assert status_data["capabilities"]
+
+        ml_replay = client.get("/api/ml-lab/replay")
+        assert ml_replay.status_code == 200
+        replay_data = ml_replay.json()
+        assert replay_data["schema"] == "trinetra.ml_lab_replay/1"
+        assert replay_data["mode"] == "offline_demo_replay"
+        assert replay_data["probability_enabled"] is False
+        assert replay_data["samples"]
 
 
 def test_unsupported_trace_page_omits_demo_custody_candidate_text() -> None:

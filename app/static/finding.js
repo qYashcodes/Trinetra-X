@@ -14,10 +14,10 @@
     lock.classList.toggle('ready', blocked === 0);
     lock.innerHTML = blocked
       ? `Locked: <span data-blocked-count>${blocked}</span> ${blocked === 1 ? 'check' : 'checks'} remaining`
-      : 'Prepare freeze notice';
+      : 'Draft freeze notice';
     readyCopy.textContent = blocked
       ? 'The notice cannot be drafted until every confirmation above is recorded against your name.'
-      : 'Every confirmation is recorded. The notice is ready to prepare.';
+      : 'Every confirmation is recorded. The notice is ready to draft.';
   };
   checks.forEach((box) => box.addEventListener('change', sync));
   lock.addEventListener('click', () => {

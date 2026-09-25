@@ -16,11 +16,12 @@
 
 .dispatch-tracker-shell {
   min-width: 0;
+  min-height: 0;
   flex: 1;
   display: flex;
   flex-direction: column;
   gap: 14px;
-  overflow: hidden;
+  overflow: auto;
   padding: 18px 20px;
 }
 
@@ -53,6 +54,41 @@
   margin: 0;
   color: #5c6880;
   font-size: 13px;
+}
+
+.tracker-role-card {
+  width: min(290px, 24vw);
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid #d7e1ee;
+  border-radius: 7px;
+  background: #f8fbff;
+}
+
+.tracker-role-card span {
+  color: #17427f;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.tracker-role-card b {
+  color: #071936;
+  font-size: 14px;
+}
+
+.tracker-role-card small {
+  color: #59667a;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.tracker-role-card[data-tracker-role="supervisor"] {
+  border-color: #d9c68f;
+  background: #fffaf0;
 }
 
 .tracker-counts {
@@ -232,6 +268,32 @@
   grid-template-columns: minmax(160px, 1fr) minmax(170px, 1fr) auto;
 }
 
+.tracker-role-note {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 7px;
+  padding: 8px 9px;
+  border: 1px solid #d8e0ea;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #4b5870;
+}
+
+.tracker-role-note b {
+  color: #12325e;
+  font-size: 12px;
+}
+
+.tracker-role-note span {
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.tracker-role-note.acp {
+  border-color: #d9c68f;
+  background: #fffaf0;
+}
+
 .tracker-table details {
   margin-top: 8px;
   color: #4b5870;
@@ -262,6 +324,7 @@
     flex-direction: column;
   }
   .tracker-counts { min-width: 0; width: 100%; }
+  .tracker-role-card { width: auto; }
   .dispatch-tracker-app { height: auto; min-height: 100vh; overflow: visible; }
   .dispatch-tracker-shell { overflow: visible; }
   .tracker-table-wrap { overflow: visible; border: 0; background: transparent; }

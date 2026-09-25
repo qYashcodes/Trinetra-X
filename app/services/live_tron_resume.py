@@ -13,7 +13,11 @@ from app.models import (
     SourceCoverage,
     TraceSnapshot,
 )
-from app.services.allocation import FrontierCandidate, allocate_proportional, schedule_candidates
+from app.services.allocation import (
+    FrontierCandidate,
+    allocate_ordered_outgoing,
+    schedule_candidates,
+)
 from app.services.evidence_store import persist_provider_coverage, provider_evidence_scope
 from app.services.frontier import lease_frontier_batch
 from app.services.hash import sha256_json
@@ -452,34 +456,23 @@ def _attribute_edges(
     *,
     attributed_base: int,
 ) -> tuple[list[dict], int]:
-    outgoing_total = sum(max(0, _int_or_zero(row.get("amount_base"))) for row in outgoing)
-    balance_base = max(attributed_base, outgoing_total)
-    remaining_attributed = attributed_base
-    residual_numerator = 0
+    allocation = allocate_ordered_outgoing(
+        (
+            max(0, _int_or_zero(row.get("amount_base")))
+            for row in outgoing
+        ),
+        attributed_base=attributed_base,
+    )
     edges: list[dict] = []
-    for index, row in enumerate(outgoing):
-        outgoing_base = max(0, _int_or_zero(row.get("amount_base")))
+    for index, (row, ordered_step) in enumerate(zip(outgoing, allocation.steps)):
+        result = ordered_step.result
         edge = dict(row)
         edge["event_ref"] = _event_ref(edge, index)
         edge["event_order"] = index
-        if balance_base <= 0 or remaining_attributed <= 0:
-            edge["attributed_base"] = 0
-            edge["residual_numerator"] = residual_numerator
-            edges.append(edge)
-            continue
-        step = allocate_proportional(
-            balance_base=balance_base,
-            attributed_base=remaining_attributed,
-            outgoing_base=outgoing_base,
-            residual_numerator=residual_numerator,
-        )
-        edge["attributed_base"] = step.outgoing_attributed_base
-        edge["residual_numerator"] = step.residual_numerator
+        edge["attributed_base"] = result.outgoing_attributed_base
+        edge["residual_numerator"] = result.residual_numerator
         edges.append(edge)
-        balance_base = step.remaining_balance_base
-        remaining_attributed = step.remaining_attributed_base
-        residual_numerator = step.residual_numerator
-    return edges, remaining_attributed
+    return edges, allocation.remaining_attributed_base
 
 
 def _frontier_schedule(

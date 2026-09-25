@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Investigator canvas · TRINETRA{% endblock %}
 {% block body_class %}canvas-page{% endblock %}
-{% block page_styles %}<link rel="stylesheet" href="/static/workspace-shell.css"><link rel="stylesheet" href="/static/canvas.css"><link rel="stylesheet" href="/static/omega-graph.css"><link rel="stylesheet" href="/static/explainability.css">{% endblock %}
-{% block page_scripts %}<script defer src="/static/omega-graph.js"></script><script defer src="/static/explainability.js"></script>{% endblock %}
+{% block page_styles %}<link rel="stylesheet" href="/static/workspace-shell.css"><link rel="stylesheet" href="/static/canvas.css"><link rel="stylesheet" href="/static/omega-graph.css?v=export-single-20260921"><link rel="stylesheet" href="/static/explainability.css">{% endblock %}
+{% block page_scripts %}<script defer src="/static/omega-graph.js?v=export-single-20260921"></script><script defer src="/static/explainability.js"></script>{% endblock %}
 
 {% block authenticated %}
 {% set trace_hops = demo.dominant_path %}
@@ -29,9 +29,6 @@
           <div class="canvas-case-title-row">
             <h1>{{ case.ack_no if case is defined else demo.case.ack_no }}</h1>
             <span class="canvas-chip canvas-chip-green"><i></i>Trace complete</span>
-            {% if finding is defined and finding %}
-              <a class="canvas-chip canvas-chip-link" href="/findings/{{ finding.id }}">Open custody finding</a>
-            {% endif %}
           </div>
           <p>Reported / at rest:&nbsp; <strong>{{ demo.case.amount_reported_base | amount_number }} / {{ demo.terminal.amount_credited_base | amount_number }} {{ demo.case.asset.symbol }}</strong>&nbsp; <strong>({{ demo.terminal.retained_share_bp | pctbp }} retained)</strong></p>
         </div>
@@ -53,15 +50,22 @@
             <option value="value_weighted"{{ ' selected' if selected_strategy == 'value_weighted' else '' }}>Value weighted</option>
           </select>
         </label>
-        <button class="strategy-explain" type="button" data-explain-target="methodology">Explain trace</button>
-        {% if user.role in ['io', 'admin'] and snapshot is defined and snapshot %}
-        <form method="post" action="/traces/{{ snapshot.id }}/retrace" data-retrace-form>
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <button class="strategy-explain" type="submit">Re-run trace</button>
-        </form>
-        {% endif %}
         <span class="strategy-fact"><small>Value threshold</small><b>≥ 2%</b></span>
         <span class="strategy-fact"><small>Stop at</small><b>VASP / Mixer / Bridge</b></span>
+        <div class="canvas-strategy-actions" aria-label="Trace actions">
+          <button class="strategy-action" type="button" data-explain-target="methodology">Explain trace</button>
+          {% if user.role in ['io', 'admin'] and snapshot is defined and snapshot %}
+          <form method="post" action="/traces/{{ snapshot.id }}/retrace" data-retrace-form>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="strategy-action" type="submit">Re-run trace</button>
+          </form>
+          {% endif %}
+          {% if finding is defined and finding %}
+            <a class="strategy-action strategy-action-primary" href="/findings/{{ finding.id }}">Open custody finding</a>
+          {% else %}
+            <button class="strategy-action" type="button" disabled title="No custody finding is recorded for this snapshot.">Custody findings</button>
+          {% endif %}
+        </div>
       </section>
       <p class="canvas-strategy-delta" data-strategy-delta aria-live="polite">Loading active strategy criterion...</p>
 

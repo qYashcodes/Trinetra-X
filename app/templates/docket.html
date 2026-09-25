@@ -126,7 +126,7 @@
         {% for row in docket.rows %}
         <tr class="{{ 'is-active-case' if row.active else '' }}" data-docket-row data-active-case="{{ 'true' if row.active else 'false' }}" data-filter-groups="{{ row.filter_groups | join(' ') }}" data-search-text="{{ row.search_text }}" data-sort-ack="{{ row.ack_no }}" data-sort-amount="{{ row.amount_base }}" data-sort-stage="{{ row.stage }}" data-sort-age="{{ row.age_rank }}">
           <td data-label="Acknowledgement">
-            <a class="docket-ack mono" href="{{ '/cases/' ~ row.case_id ~ '/canvas?snapshot=' ~ row.snapshot_id if row.case_id is defined and row.snapshot_id else ('/cases/' ~ case.id ~ '/canvas?snapshot=' ~ snapshot.id if row.active else '/docket') }}">
+            <a class="docket-ack mono" href="{{ row.href or ('/cases/' ~ row.case_id ~ '/canvas?snapshot=' ~ row.snapshot_id if row.case_id is defined and row.snapshot_id else ('/cases/' ~ case.id ~ '/canvas?snapshot=' ~ snapshot.id if row.active else '/docket')) }}">
               <i class="{{ row.status_tone }}" aria-hidden="true"></i><span>{{ row.ack_no }}</span>
             </a>
             {% if row.active %}<span class="active-case-pill">Working case</span>{% endif %}

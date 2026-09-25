@@ -168,11 +168,18 @@
 
     function applyStrategy(analysis) {
       const oldPositions = new Map(graph.nodes.map((node) => [node.address, { x: node.x, y: node.y }]));
+      const strategyChanged = Boolean(state.analysis && state.analysis.strategy !== analysis.strategy);
       if (state.analysis && state.analysis.strategy !== analysis.strategy) {
         state.previousAnalysis = state.analysis;
         state.comparePrevious = false;
       }
       state.analysis = analysis;
+      shell.dataset.omegaStrategy = analysis.strategy;
+      if (strategyChanged) {
+        shell.classList.remove("omega-strategy-changed");
+        shell.offsetHeight;
+        shell.classList.add("omega-strategy-changed");
+      }
       const edgeStyles = new Map((analysis.edges || []).map((edge) => [edge.key, edge]));
       const nodeRanks = new Map((analysis.node_ranks || []).map((node) => [node.address, node]));
       graph.edges.forEach((edge) => {
@@ -356,6 +363,7 @@
 
       const group = createSvg("g", { "data-omega-group": "true" });
       svg.appendChild(group);
+      group.appendChild(strategyStamp());
 
       if (state.comparePrevious && state.previousAnalysis) {
         const previousKeys = new Set(state.previousAnalysis.primary_edge_keys || []);
@@ -385,7 +393,7 @@
           stroke: "currentColor",
           "stroke-width": String(edge.width || edgeWidth(edge.amount)),
           "marker-end": `url(#${markerId})`,
-          class: `omega-flow-edge edge-${edge.state}${edge.primary ? " is-primary" : ""}${edge.deprioritized ? " is-deprioritized" : ""}`,
+          class: `omega-flow-edge edge-${edge.state}${edge.primary ? " is-primary" : ""}${edge.deprioritized ? " is-deprioritized" : ""}${edge.strategyRank === 1 ? " is-rank-one" : ""}`,
           "data-edge-id": edge.id,
           "data-edge-key": edge.stableKey,
         });
@@ -408,6 +416,28 @@
           selectEdge(edge.id);
         });
         group.appendChild(label);
+        if (edge.strategyRank === 1) {
+          const badge = createSvg("g", {
+            class: "omega-edge-rank-badge",
+            transform: `translate(${(geometry.sx + geometry.ex) / 2 - 15},${(geometry.sy + geometry.ey) / 2 + 10})`,
+          });
+          badge.appendChild(createSvg("rect", {
+            width: "30",
+            height: "18",
+            rx: "9",
+            ry: "9",
+            class: "omega-edge-rank-pill",
+          }));
+          const text = createSvg("text", {
+            x: "15",
+            y: "13",
+            "text-anchor": "middle",
+            class: "omega-edge-rank-text",
+          });
+          text.textContent = "R1";
+          badge.appendChild(text);
+          group.appendChild(badge);
+        }
       });
 
       graph.nodes.forEach((node) => {
@@ -464,6 +494,31 @@
       updateSelection();
     }
 
+    function strategyStamp() {
+      const strategy = state.analysis?.strategy || strategySelect?.value || "dominant_fund_flow";
+      const label = strategy.replaceAll("_", " ");
+      const stamp = createSvg("g", {
+        class: "omega-strategy-stamp",
+        transform: "translate(18,18)",
+        "aria-hidden": "true",
+      });
+      stamp.appendChild(createSvg("rect", {
+        width: "188",
+        height: "30",
+        rx: "7",
+        ry: "7",
+        class: "omega-strategy-stamp-bg",
+      }));
+      const text = createSvg("text", {
+        x: "12",
+        y: "20",
+        class: "omega-strategy-stamp-text",
+      });
+      text.textContent = `Strategy: ${label}`;
+      stamp.appendChild(text);
+      return stamp;
+    }
+
     function edgeGeometry(source, target) {
       const sx = source.x + source.width;
       const sy = source.y + source.height / 2;
@@ -495,20 +550,21 @@
 
     async function exportGraph(format) {
       const clone = svg.cloneNode(true);
-      const scope = shell.querySelector("[data-omega-export-scope]")?.value || "whole_graph";
+      const scope = "whole_graph";
       const maxX = graph.nodes.length ? Math.max(...graph.nodes.map((node) => node.x + node.width)) : 1200;
       const maxY = graph.nodes.length ? Math.max(...graph.nodes.map((node) => node.y + node.height)) : 700;
-      const width = scope === "visible_area" ? Math.max(1, viewport.clientWidth) : Math.max(1, maxX + 40);
-      const height = scope === "visible_area" ? Math.max(1, viewport.clientHeight) : Math.max(1, maxY + 40);
+      const width = Math.max(1, maxX + 40);
+      const height = Math.max(1, maxY + 40);
       const captionHeight = 54;
-      if (scope === "whole_graph") {
-        clone.querySelector("[data-omega-group]")?.setAttribute("transform", "translate(20,20) scale(1)");
-      }
+      inlineExportStyles(clone);
+      applyExportPaint(clone);
+      applyExportVisibility(clone);
+      clone.querySelector("[data-omega-group]")?.setAttribute("transform", "translate(20,20) scale(1)");
       clone.setAttribute("xmlns", NS);
       clone.setAttribute("viewBox", `0 0 ${width} ${height + captionHeight}`);
       clone.setAttribute("width", String(width));
       clone.setAttribute("height", String(height + captionHeight));
-      const background = createSvg("rect", { x: "0", y: "0", width: String(width), height: String(height + captionHeight), fill: "#0e1825" });
+      const background = createSvg("rect", { x: "0", y: "0", width: String(width), height: String(height + captionHeight), fill: "#f6f8fb" });
       clone.insertBefore(background, clone.firstChild);
       const captionBand = createSvg("rect", { x: "0", y: String(height), width: String(width), height: String(captionHeight), fill: "#ffffff" });
       const caption = createSvg("text", { x: "20", y: String(height + 33), fill: "#172033", "font-size": "16", "font-family": "Noto Sans, sans-serif" });
@@ -519,7 +575,7 @@
       clone.appendChild(caption);
       const source = new XMLSerializer().serializeToString(clone);
       const svgBlob = new Blob([source], { type: "image/svg+xml;charset=utf-8" });
-      const baseName = `trinetra_graph_${shell.dataset.caseId || "case"}_${shell.dataset.traceId || "trace"}_${strategy}_${fileStamp(new Date())}`;
+      const baseName = `trinetra_graph_${shell.dataset.caseId || "case"}_${shell.dataset.traceId || "trace"}_${strategy}_${scope}_${fileStamp(new Date())}`;
       let blob = svgBlob;
       let extension = "svg";
       if (format === "png") {
@@ -530,6 +586,146 @@
       shell.dispatchEvent(new CustomEvent("trinetra:graph-export", { detail, bubbles: true }));
       downloadBlob(blob, detail.filename);
       window.trinetraLastGraphExport = detail;
+    }
+
+    function inlineExportStyles(clone) {
+      const defs = clone.querySelector("defs") || clone.insertBefore(createSvg("defs"), clone.firstChild);
+      const style = createSvg("style", { "data-omega-export-style": "true" });
+      style.textContent = `
+        .omega-flow-edge { fill: none; stroke: #47617d; stroke-linecap: round; opacity: .78; }
+        .omega-flow-edge.is-primary { stroke: #15875a; opacity: .96; }
+        [data-omega-strategy="value_weighted"] .omega-flow-edge.is-primary { stroke: #2479d1; }
+        .omega-flow-edge.is-deprioritized { opacity: .2; }
+        .omega-flow-edge.edge-deferred, .omega-flow-edge.edge-parked { stroke: #b77913; }
+        .omega-flow-edge.edge-terminal { stroke: #15875a; stroke-dasharray: 7 6; }
+        .omega-edge-rank-pill { fill: #15875a; stroke: #ffffff; stroke-width: 2px; }
+        .omega-edge-rank-text { fill: #ffffff; font-family: "Noto Sans", Arial, sans-serif; font-size: 10px; font-weight: 900; }
+        .omega-strategy-stamp-bg { fill: #ffffff; stroke: #7890aa; stroke-width: 1.5px; }
+        .omega-strategy-stamp-text { fill: #071936; font-family: "Noto Sans", Arial, sans-serif; font-size: 12px; font-weight: 900; text-transform: capitalize; }
+        .omega-ghost-edge { color: #8ca0bd; stroke: #8ca0bd; opacity: .4; stroke-dasharray: 8 7; }
+        .omega-arrow { fill: #47617d; }
+        .omega-edge-label { fill: #102033; stroke: #f6f8fb; stroke-width: 6px; stroke-linejoin: round; paint-order: stroke; font-family: "Noto Sans Mono", Consolas, monospace; font-size: 11px; font-weight: 800; }
+        .omega-edge-label.is-deprioritized { opacity: .15; }
+        .omega-node-box { fill: #ffffff; stroke: #7890aa; stroke-width: 2px; }
+        .omega-graph-node.is-primary .omega-node-box { stroke: #15875a; }
+        [data-omega-strategy="value_weighted"] .omega-graph-node.is-primary .omega-node-box { stroke: #2479d1; }
+        .omega-graph-node.node-seed .omega-node-box { stroke: #15875a; }
+        .omega-graph-node.node-deferred .omega-node-box { stroke: #b77913; }
+        .omega-graph-node.node-terminal .omega-node-box { stroke: #15875a; stroke-dasharray: 6 5; }
+        .omega-node-depth, .omega-node-role { fill: #4d5d73; font-family: "Noto Sans", Arial, sans-serif; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+        .omega-node-address { fill: #071936; font-family: "Noto Sans Mono", Consolas, monospace; font-size: 12px; font-weight: 800; }
+        .omega-node-amount { fill: #193454; font-family: "Noto Sans Mono", Consolas, monospace; font-size: 11px; font-weight: 800; }
+      `;
+      defs.appendChild(style);
+    }
+
+    function applyExportPaint(clone) {
+      clone.querySelectorAll(".omega-flow-edge").forEach((edge) => {
+        const classes = edge.classList;
+        edge.setAttribute("fill", "none");
+        edge.setAttribute("stroke-linecap", "round");
+        edge.setAttribute("stroke", "#47617d");
+        edge.setAttribute("opacity", ".78");
+        if (classes.contains("is-primary")) {
+          edge.setAttribute("stroke", shell.dataset.omegaStrategy === "value_weighted" ? "#2479d1" : "#15875a");
+          edge.setAttribute("opacity", ".96");
+        }
+        if (classes.contains("edge-deferred") || classes.contains("edge-parked")) {
+          edge.setAttribute("stroke", "#b77913");
+        }
+        if (classes.contains("edge-terminal")) {
+          edge.setAttribute("stroke", "#15875a");
+          edge.setAttribute("stroke-dasharray", "7 6");
+        }
+        if (classes.contains("is-deprioritized")) {
+          edge.setAttribute("opacity", ".2");
+        }
+      });
+      clone.querySelectorAll(".omega-ghost-edge").forEach((edge) => {
+        edge.setAttribute("stroke", "#8ca0bd");
+        edge.setAttribute("opacity", ".4");
+        edge.setAttribute("stroke-dasharray", "8 7");
+      });
+      clone.querySelectorAll(".omega-arrow").forEach((arrow) => {
+        arrow.setAttribute("fill", "#47617d");
+      });
+      clone.querySelectorAll(".omega-edge-rank-pill").forEach((pill) => {
+        pill.setAttribute("fill", shell.dataset.omegaStrategy === "value_weighted" ? "#2479d1" : "#15875a");
+        pill.setAttribute("stroke", "#ffffff");
+        pill.setAttribute("stroke-width", "2");
+      });
+      clone.querySelectorAll(".omega-edge-rank-text").forEach((label) => {
+        label.setAttribute("fill", "#ffffff");
+        label.setAttribute("font-family", "Noto Sans, Arial, sans-serif");
+        label.setAttribute("font-size", "10");
+        label.setAttribute("font-weight", "900");
+      });
+      clone.querySelectorAll(".omega-strategy-stamp-bg").forEach((stamp) => {
+        stamp.setAttribute("fill", "#ffffff");
+        stamp.setAttribute("stroke", "#7890aa");
+        stamp.setAttribute("stroke-width", "1.5");
+      });
+      clone.querySelectorAll(".omega-strategy-stamp-text").forEach((label) => {
+        label.setAttribute("fill", "#071936");
+        label.setAttribute("font-family", "Noto Sans, Arial, sans-serif");
+        label.setAttribute("font-size", "12");
+        label.setAttribute("font-weight", "900");
+      });
+      clone.querySelectorAll(".omega-edge-label").forEach((label) => {
+        label.setAttribute("fill", "#102033");
+        label.setAttribute("stroke", "#f6f8fb");
+        label.setAttribute("stroke-width", "6");
+        label.setAttribute("stroke-linejoin", "round");
+        label.setAttribute("paint-order", "stroke");
+        label.setAttribute("font-family", "Noto Sans Mono, Consolas, monospace");
+        label.setAttribute("font-size", "11");
+        label.setAttribute("font-weight", "800");
+        if (label.classList.contains("is-deprioritized")) {
+          label.setAttribute("opacity", ".15");
+        }
+      });
+      clone.querySelectorAll(".omega-graph-node").forEach((node) => {
+        const box = node.querySelector(".omega-node-box");
+        if (box) {
+          box.setAttribute("fill", "#ffffff");
+          box.setAttribute("stroke", "#7890aa");
+          box.setAttribute("stroke-width", "2");
+          if (node.classList.contains("is-primary")) box.setAttribute("stroke", shell.dataset.omegaStrategy === "value_weighted" ? "#2479d1" : "#15875a");
+          if (node.classList.contains("node-seed")) box.setAttribute("stroke", "#15875a");
+          if (node.classList.contains("node-deferred")) box.setAttribute("stroke", "#b77913");
+          if (node.classList.contains("node-terminal")) {
+            box.setAttribute("stroke", "#15875a");
+            box.setAttribute("stroke-dasharray", "6 5");
+          }
+        }
+      });
+      clone.querySelectorAll(".omega-node-depth, .omega-node-role").forEach((label) => {
+        label.setAttribute("fill", "#4d5d73");
+        label.setAttribute("font-family", "Noto Sans, Arial, sans-serif");
+        label.setAttribute("font-size", "10");
+        label.setAttribute("font-weight", "800");
+      });
+      clone.querySelectorAll(".omega-node-address").forEach((label) => {
+        label.setAttribute("fill", "#071936");
+        label.setAttribute("font-family", "Noto Sans Mono, Consolas, monospace");
+        label.setAttribute("font-size", "12");
+        label.setAttribute("font-weight", "800");
+      });
+      clone.querySelectorAll(".omega-node-amount").forEach((label) => {
+        label.setAttribute("fill", "#193454");
+        label.setAttribute("font-family", "Noto Sans Mono, Consolas, monospace");
+        label.setAttribute("font-size", "11");
+        label.setAttribute("font-weight", "800");
+      });
+    }
+
+    function applyExportVisibility(clone) {
+      if (!state.showValues) {
+        clone.querySelectorAll(".omega-edge-label, .omega-node-amount").forEach((element) => element.remove());
+      }
+      if (!state.showParked) {
+        clone.querySelectorAll(".node-deferred, .edge-deferred, .edge-parked, .omega-edge-label.edge-deferred, .omega-edge-label.edge-parked").forEach((element) => element.remove());
+      }
     }
 
     function selectNode(id) {

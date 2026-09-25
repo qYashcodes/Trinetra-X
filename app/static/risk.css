@@ -807,6 +807,228 @@ body.risk-page .risk-methodology dt,
 body.risk-page .risk-methodology dd { margin: 0; font-size: 12px; line-height: 18px; }
 body.risk-page .risk-methodology dt { color: #5c6880; }
 
+body.risk-page .risk-ml-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 13px 14px;
+  border: 1px solid #d8e0ea;
+  border-left: 4px solid #12325e;
+  border-radius: 8px;
+  background: #f7f9fc;
+}
+
+body.risk-page .risk-ml-inline > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+body.risk-page .risk-ml-inline h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+body.risk-page .risk-ml-inline p {
+  margin: 3px 0 0;
+  color: #5c6880;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+body.risk-page .risk-ml-inline a {
+  flex: none;
+  color: #12325e;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+body.risk-page .ml-vector-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+body.risk-page .ml-vector-grid > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 9px 10px;
+  border: 1px solid #e3e8ef;
+  border-radius: 6px;
+  background: #fff;
+}
+
+body.risk-page .ml-vector-grid span,
+body.risk-page .ml-vector-grid small,
+body.risk-page .ml-status-list dt,
+body.risk-page .ml-checklist b {
+  color: #5c6880;
+  font-size: 11px;
+}
+
+body.risk-page .ml-vector-grid strong,
+body.risk-page .ml-status-list dd {
+  min-width: 0;
+  color: #111a2b;
+  font-family: "Noto Sans Mono", Consolas, monospace;
+  font-size: 12px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+body.risk-page .ml-vector-grid small {
+  line-height: 16px;
+}
+
+body.risk-page .ml-status-list {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  background: #eef1f6;
+}
+
+body.risk-page .ml-status-list > div {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 10px;
+  padding: 9px 12px;
+  background: #fff;
+}
+
+body.risk-page .ml-status-list dt,
+body.risk-page .ml-status-list dd {
+  margin: 0;
+}
+
+body.risk-page .ml-status-list code {
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+body.risk-page .ml-checklist {
+  display: flex;
+  flex-direction: column;
+}
+
+body.risk-page .ml-checklist > div {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  border-top: 1px solid #eef1f6;
+}
+
+body.risk-page .ml-checklist > div:first-child {
+  border-top: 0;
+}
+
+body.risk-page .ml-checklist i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #5c6880;
+}
+
+body.risk-page .ml-checklist .complete i { background: #16a34a; }
+body.risk-page .ml-checklist .pending i { background: #c98a12; }
+body.risk-page .ml-checklist .disabled i { background: #64748b; }
+body.risk-page .ml-checklist span { min-width: 0; color: #111a2b; font-size: 12px; }
+
+body.risk-page .ml-lab-main .risk-primary {
+  gap: 16px;
+}
+
+body.risk-page .ml-lab-hero {
+  min-height: 178px;
+}
+
+body.risk-page .ml-lab-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+body.risk-page .ml-lab-replay {
+  border-left-color: #12325e;
+}
+
+body.risk-page .ml-lab-samples {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+body.risk-page .ml-lab-samples article {
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid #d8e0ea;
+  border-radius: 8px;
+  background: #fff;
+}
+
+body.risk-page .ml-lab-samples header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+body.risk-page .ml-lab-samples header span {
+  color: #5c6880;
+  font-size: 12px;
+}
+
+body.risk-page .ml-lab-samples header strong {
+  color: #12325e;
+  font-family: "Noto Sans Mono", Consolas, monospace;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+body.risk-page .ml-lab-samples h3 {
+  margin: 0 0 5px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+body.risk-page .ml-lab-samples p {
+  margin: 0 0 10px;
+  color: #5c6880;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+body.risk-page .ml-lab-samples dl {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+body.risk-page .ml-lab-samples dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+body.risk-page .ml-lab-samples dt {
+  color: #5c6880;
+  font-size: 11px;
+}
+
+body.risk-page .ml-lab-samples dd {
+  margin: 0;
+  color: #111a2b;
+  font-size: 11px;
+}
+
 body.risk-page .risk-escalate {
   display: flex;
   align-items: center;
@@ -857,10 +1079,13 @@ body.risk-page .risk-recent-empty { margin: 0; padding: 14px 16px; color: #5c688
   body.risk-page .risk-result-card { padding: 16px; }
   body.risk-page .risk-mode-control > small { width: 100%; margin: 6px 0 0; }
   body.risk-page .risk-method-state,
-  body.risk-page .risk-feature-list dl { grid-template-columns: minmax(0, 1fr); }
+  body.risk-page .risk-feature-list dl,
+  body.risk-page .ml-vector-grid,
+  body.risk-page .ml-lab-samples { grid-template-columns: minmax(0, 1fr); }
   body.risk-page .risk-method-state > div { grid-template-columns: minmax(100px, .7fr) minmax(0, 1.3fr); }
   body.risk-page .risk-feature-list article > header,
-  body.risk-page .risk-source-list article > div:first-child { align-items: flex-start; flex-direction: column; gap: 4px; }
+  body.risk-page .risk-source-list article > div:first-child,
+  body.risk-page .risk-ml-inline > header { align-items: flex-start; flex-direction: column; gap: 4px; }
   body.risk-page .risk-source-list article > div:first-child span { text-align: left; }
   body.risk-page .risk-methodology dl > div { grid-template-columns: minmax(105px, .7fr) minmax(0, 1.3fr); }
 }
