@@ -15,3 +15,11 @@ var/
 dist/
 build/
 node_modules/
+.venv311/
+output/
+tmp/
+debug.log
+*.zip
+agentskills.md
+skills/
+.trinetra-venv/
