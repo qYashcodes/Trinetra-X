@@ -10,6 +10,10 @@
   <script defer src="/static/role-guard.js"></script>
   <script defer src="/static/vendor/alpine.min.js"></script>
   <script defer src="/static/app.js"></script>
+  {% set presence_capability = workstation_presence | default({'available': false}, true) %}
+  {% if user and presence_capability.available %}
+  <script type="module" src="/static/presence-detection.js"></script>
+  {% endif %}
   {% block page_scripts %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% endblock %} {{ 'authenticated-session' if user else 'public-session' }}"{% if user %} data-csrf-token="{{ csrf_token|default('') }}" data-work-context='{{ working_context|default({}) | tojson }}' data-navigation-routes='{{ navigation_routes|default({}) | tojson }}' data-role-view-registry='{{ role_view_registry|default({}) | tojson }}'{% endif %}>

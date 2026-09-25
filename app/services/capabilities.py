@@ -24,6 +24,7 @@ def capability_matrix(flags: dict[str, dict[str, object]] | None = None) -> list
     btc_trace_enabled = bool(active_flags.get("live_btc_trace", {}).get("enabled"))
     worker_enabled = bool(active_flags["supervised_frontier_worker"]["enabled"])
     watch_enabled = bool(active_flags.get("wallet_watch", {}).get("enabled"))
+    presence_enabled = bool(active_flags.get("workstation_presence", {}).get("enabled"))
     narrative_enabled = bool(active_flags.get("narrative_triage", {}).get("enabled"))
     return [
         {
@@ -37,6 +38,19 @@ def capability_matrix(flags: dict[str, dict[str, object]] | None = None) -> list
             "name": "Government identity",
             "state": "unavailable",
             "detail": "OIDC and WebAuthn remain shells pending approved metadata, credentials and authority configuration.",
+        },
+        {
+            "key": "workstation_presence",
+            "name": "On-device workstation presence",
+            "state": "enabled" if presence_enabled else "integration-tested",
+            "detail": (
+                "Optional on-device face-presence obscuring is enabled; it is not identity or liveness verification."
+                if presence_enabled
+                else (
+                    "Pinned local face-presence assets and fail-open session integration are "
+                    "tested behind enablement and privacy-review gates."
+                )
+            ),
         },
         {
             "key": "fixture_tron_usdt",

@@ -206,9 +206,12 @@ app.add_middleware(
 
 
 @app.middleware("http")
-async def security_headers(request: Request, call_next):
+async def workstation_presence_permissions_policy(request: Request, call_next):
     response = await call_next(request)
-    response.headers["Permissions-Policy"] = "microphone=()"
+    enabled = bool(feature_flags()["workstation_presence"]["enabled"])
+    response.headers["Permissions-Policy"] = (
+        "camera=(self), microphone=()" if enabled else "camera=(), microphone=()"
+    )
     response.headers["Content-Security-Policy"] = "connect-src 'self'"
     content_type = response.headers.get("content-type", "")
     if content_type.startswith("text/html") and (
@@ -951,6 +954,10 @@ def template_context(
 ) -> dict:
     role = str((user or {}).get("role") or OfficerRole.io.value)
     active_case = active_case_from_session(request)
+    presence_flag = feature_flags()["workstation_presence"]
+    presence_available = bool(presence_flag["enabled"])
+    if not presence_available:
+        request.session.pop("workstation_presence_enabled", None)
     return {
         "request": request,
         "user": user,
@@ -981,6 +988,14 @@ def template_context(
             "obscure_seconds": settings.session_idle_obscure_seconds,
             "warning_seconds": settings.session_idle_warning_seconds,
             "timeout_seconds": settings.session_idle_timeout_seconds,
+        },
+        "workstation_presence": {
+            "available": presence_available,
+            "enabled_for_session": presence_available
+            and request.session.get("workstation_presence_enabled") is True,
+            "absence_ms": max(1, settings.presence_absence_seconds) * 1000,
+            "check_interval_ms": max(100, settings.presence_check_interval_ms),
+            "resume_grace_ms": max(0, settings.presence_resume_grace_seconds) * 1000,
         },
     }
 
@@ -1145,6 +1160,37 @@ def extend_session(
     require_csrf(request, csrf_token)
     row: OfficerSession = request.state.officer_session
     return {"status": "extended", "expires_ts_ms": row.expires_ts_ms}
+
+
+@app.post("/api/session/presence")
+async def update_workstation_presence(
+    request: Request,
+    user: dict = Depends(session_user),
+) -> dict:
+    try:
+        payload = await request.json()
+    except ValueError as exc:
+        raise HTTPException(
+            422, "Presence preference requires a boolean enabled value."
+        ) from exc
+    if not isinstance(payload, dict) or not isinstance(payload.get("enabled"), bool):
+        raise HTTPException(422, "Presence preference requires a boolean enabled value.")
+    require_csrf(request, request.headers.get("x-csrf-token") or payload.get("csrf_token"))
+    flag = feature_flags()["workstation_presence"]
+    if not flag["enabled"]:
+        raise HTTPException(409, "Workstation presence monitoring is unavailable.")
+    enabled = payload["enabled"]
+    current = request.session.get("workstation_presence_enabled") is True
+    request.session["workstation_presence_enabled"] = enabled
+    if current != enabled:
+        row: OfficerSession = request.state.officer_session
+        append_audit_event(
+            user["pis"],
+            "session.presence_monitoring_changed",
+            f"session:{row.id}",
+            {"session_id": row.id, "enabled": enabled},
+        )
+    return {"available": True, "enabled": enabled}
 
 
 @app.get("/api/work-context")
