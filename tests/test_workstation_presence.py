@@ -140,7 +140,8 @@ def test_enabled_preference_is_csrf_protected_boolean_idempotent_and_session_sco
         assert 'data-presence-resume-grace-ms="5000"' in page.text
         assert "/static/presence-detection.js" in page.text
         assert "not identity or liveness verification" in page.text
-        assert "<video" not in page.text
+        assert 'data-presence-preview' in page.text
+        assert 'aria-label="Local workstation camera preview"' in page.text
 
         missing_csrf = client.post("/api/session/presence", json={"enabled": True})
         assert missing_csrf.status_code == 403

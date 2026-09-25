@@ -12,6 +12,7 @@ if (controls) {
   const retry = controls.querySelector("[data-presence-retry]");
   const status = controls.querySelector("[data-presence-status]");
   const detail = controls.querySelector("[data-presence-detail]");
+  const preview = controls.querySelector("[data-presence-preview]");
   const csrf = document.body?.dataset?.csrfToken || "";
   const defaultDetail = "On-device face presence only; not identity or liveness verification.";
   const stateLabels = {
@@ -25,6 +26,11 @@ if (controls) {
   let monitor = null;
   let advisory = "";
   let failureDetail = "";
+
+  const updatePreview = (state) => {
+    if (!preview) return;
+    preview.hidden = state !== PRESENCE_STATES.MONITORING;
+  };
 
   const waitForShield = async () => {
     if (window.trinetraSessionShield) return window.trinetraSessionShield;
@@ -64,7 +70,7 @@ if (controls) {
     monitor = createPresenceMonitor({
       shield,
       createDetector: () => createLocalFaceDetector(),
-      createCamera: () => createLocalCamera(),
+      createCamera: () => createLocalCamera({ videoElement: preview }),
       motionCheck: (video) => motion.check(video),
       resetMotion: () => motion.reset(),
       absenceMs: Number(controls.dataset.presenceAbsenceMs || 15000),
@@ -72,6 +78,7 @@ if (controls) {
       resumeGraceMs: Number(controls.dataset.presenceResumeGraceMs || 5000),
       onStatus: ({ state, enabled }) => {
         if (state !== PRESENCE_STATES.UNAVAILABLE) failureDetail = "";
+        updatePreview(state);
         updateUi({ state, enabled });
       },
       onAdvisory: (message) => {
@@ -81,6 +88,7 @@ if (controls) {
       onError: (error) => {
         console.warn("TRINETRA workstation presence unavailable.", error);
         failureDetail = "Camera or local detector unavailable; the existing idle shield remains active.";
+        updatePreview(PRESENCE_STATES.UNAVAILABLE);
         updateUi({ state: PRESENCE_STATES.UNAVAILABLE, enabled: monitor.isEnabled() });
       },
     });

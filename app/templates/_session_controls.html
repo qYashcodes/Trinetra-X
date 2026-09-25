@@ -33,6 +33,15 @@
       <span data-presence-status role="status">{{ 'Starting' if presence.enabled_for_session else 'Off' }}</span>
       <small data-presence-detail>On-device face presence only; not identity or liveness verification.</small>
     </div>
+    <video
+      class="presence-preview"
+      data-presence-preview
+      autoplay
+      muted
+      playsinline
+      aria-label="Local workstation camera preview"
+      hidden
+    ></video>
     <button
       class="presence-toggle"
       type="button"

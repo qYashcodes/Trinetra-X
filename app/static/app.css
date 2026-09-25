@@ -1688,6 +1688,17 @@ body.authenticated-session {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.presence-preview {
+  width: 96px;
+  height: 64px;
+  flex: none;
+  display: block;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: #101722;
+}
+.presence-preview[hidden] { display: none; }
 .presence-toggle,
 .presence-retry {
   min-height: 28px;

@@ -33,15 +33,17 @@ export async function createLocalFaceDetector({
 export async function createLocalCamera({
   mediaDevices = navigator.mediaDevices,
   documentRef = document,
+  videoElement = null,
 } = {}) {
   const stream = await mediaDevices.getUserMedia({
     video: { width: { ideal: 320 }, height: { ideal: 240 }, facingMode: "user" },
     audio: false,
   });
-  const video = documentRef.createElement("video");
+  const video = videoElement || documentRef.createElement("video");
   video.srcObject = stream;
   video.muted = true;
   video.playsInline = true;
+  video.autoplay = true;
   try {
     await video.play();
   } catch (error) {
