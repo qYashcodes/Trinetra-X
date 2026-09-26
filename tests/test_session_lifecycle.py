@@ -186,7 +186,7 @@ def test_identity_shells_and_security_gaps_remain_visible(session_app) -> None:
     with TestClient(app) as client:
         login = client.get("/login")
         assert "Demonstration prototype" in login.text
-        assert login.text.count("Integration pending") == 2
+        assert "Integration pending" not in login.text
         assert "Demonstration account" in login.text
 
         client.post("/auth/prototype", data={"role": "io"})

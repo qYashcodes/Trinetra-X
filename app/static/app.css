@@ -436,14 +436,9 @@ p { margin: 0 0 10px; }
   background: var(--navy-hover);
   border-color: var(--navy-hover);
 }
-.login-button-primary small {
-  margin-left: auto;
-  padding: 4px 6px;
-  border: 1px solid rgba(255,255,255,.35);
-  border-radius: 4px;
-  font-size: 9.5px;
-  font-weight: 500;
-  white-space: nowrap;
+.login-button-primary .login-icon {
+  position: absolute;
+  left: 8px;
 }
 .login-icon {
   width: 25px;
